@@ -1,0 +1,94 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+{% extends "@ModuleAutoUpgrade/components/dialog.html.twig" %}
+
+{% set dialogId = 'errorDialog' %}
+{% set title = 'Send error report?'|trans({}) %}
+{% set dialogSize = 'md' %}
+
+{% block dialog_content %}
+  <div class="dialog__error-report-content">
+    <p>
+      {{ 'Help us improve the module by sending us this error report. For your information, the logs will be attached with your message. You can add more details in the description if you wish.'|trans({}) }}
+    </p>
+
+    {% if data_transparency_link %}
+      <p>
+        <a class="link" target="_blank" href="{{ data_transparency_link }}">
+          {{ 'Learn more about your data and your rights'|trans({}) }}<i class="material-icons">launch</i>
+        </a>
+      </p>
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block dialog_extra_content_inner %}
+  <form class="dialog__error-report-form" id="form-error-feedback" name="form-error-feedback">
+    <div class="form-group">
+      <label for="errorMessage">
+        {{ 'Error message'|trans({}) }}
+      </label>
+      <textarea
+        disabled
+        class="form-control"
+        id="errorMessage"
+        name="error"
+        placeholder=""
+        rows="3"
+      ></textarea>
+    </div>
+
+    <div class="form-group">
+      <label for="userEmail">
+        {{ 'Email (optional)'|trans({}) }}
+      </label>
+      <input
+        type="email"
+        class="form-control"
+        id="userEmail"
+        name="email"
+        placeholder="{{ 'Enter your email address'|trans({}) }}"
+      />
+    </div>
+
+    <div class="form-group">
+      <label for="errorDescription">
+        {{ 'Description (optional)'|trans({}) }}
+      </label>
+      <textarea
+        class="form-control"
+        id="errorDescription"
+        name="comments"
+        placeholder="{{ 'You can add details about the error here.'|trans({}) }}"
+        rows="3"
+      ></textarea>
+    </div>
+  </form>
+{% endblock %}
+
+{% block dialog_footer_inner %}
+  <button type="button" class="btn btn-link" data-dismiss="dialog">
+    {{ 'Cancel'|trans({}) }}
+  </button>
+
+  <button type="submit" form="form-error-feedback" class="btn btn-primary">
+    <i class="material-icons">send</i>
+    {{ 'Send error report'|trans({}) }}
+  </button>
+{% endblock %}

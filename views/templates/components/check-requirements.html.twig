@@ -1,0 +1,71 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+{% if requirements.warnings|length > 0 or requirements.errors|length > 0 %}
+  <div data-slot-component="requirements" class="check-requirements check-requirements--failed">
+    <p class="check-requirements__title h3">
+      {{ "Update requirements"|trans({}) }}
+    </p>
+
+    <p class="check-requirements__message">
+        {% if requirements.errors|length > 0 %}
+            {{ 'Once all the following conditions are met, you can continue with the update. Read more in the [1]developer documentation[/1].'|trans({
+                '[1]' : '<a class="link" href="' ~ dev_doc_upgrade_web_url ~'" target="_blank">',
+                '[/1]' : '</a>',
+            })|raw }}
+        {% else %}
+            {{ 'Please consider these warnings before continuing with the update. Read more in the [1]developer documentation[/1].'|trans({
+                '[1]' : '<a class="link" href="' ~ dev_doc_upgrade_web_url ~'" target="_blank">',
+                '[/1]' : '</a>',
+            })|raw }}
+        {% endif %}
+    </p>
+
+    <div class="check-requirements__list">
+      {% for error in requirements.errors %}
+        <div class="check-requirements__requirement check-requirements__requirement--error">
+          {{ error.message|raw }}
+            {% if error.list is defined %}
+                {{ error.list|join(', ') }}
+            {% endif %}
+        </div>
+      {% endfor %}
+
+      {% for warning in requirements.warnings %}
+        <div class="check-requirements__requirement check-requirements__requirement--warning">
+          {{ warning.message|raw }}
+            {% if warning.list is defined %}
+                {{ warning.list|join(', ') }}
+            {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+    <button type="button" class="btn btn-primary" data-action="check-requirements-again">
+      <i class="material-icons">refresh</i>
+      {{ 'Check requirements again'|trans({}) }}
+    </button>
+  </div>
+{% else %}
+  <div class="check-requirements check-requirements--success">
+    {% include "@ModuleAutoUpgrade/components/alert.html.twig" with {
+      title: '',
+      message: 'The requirements check is complete, you can update your store to this version of PrestaShop.'|trans({}),
+      alertStatus: 'success',
+    } %}
+  </div>
+{% endif %}

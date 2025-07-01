@@ -1,0 +1,53 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+<div class="render-field {% if backup_selection is defined and backup_selection %}render-field--backup-selection{% endif %} {% if description is not defined or not description %}render-field--no-desc{% endif %}">
+  {% if backup_selection is not defined or not backup_selection %}
+    <div class="render-field__infos">
+      {% if title is defined and title %}
+        <p class="render-field__title">
+          {{ title }}
+          {% if required is defined and required %}
+            <sup class="text-danger">*</sup>
+          {% endif %}
+        </p>
+      {% endif %}
+
+      {% if description is defined and description %}
+        <p class="render-field__desc text-muted">
+          {{ description }}
+        </p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <div class="render-field__action">
+    {% block action_content %}
+      {# Default content can go here, or it can be left empty for children to override #}
+    {% endblock %}
+  </div>
+
+  {% if error_message is defined and error_message is not empty %}
+    <div class="render-field__error">
+      <div class="error-message">
+        <i class="material-icons">error</i>
+        {{ error_message }}
+      </div>
+    </div>
+  {% endif %}
+</div>

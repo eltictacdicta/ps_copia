@@ -1,0 +1,56 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+{% extends "@ModuleAutoUpgrade/layouts/step-content.html.twig" %}
+
+{% block page_class %}restore-page{% endblock %}
+
+{% block title %}
+  <h2>{{ step.title }}</h2>
+{% endblock %}
+
+{% block content %}
+  {% include "@ModuleAutoUpgrade/components/alert.html.twig" with {
+    id: 'error-alert',
+    hidden: true,
+    alertStatus: 'danger',
+    title: 'Restoration failed'|trans({}),
+    message: 'Please try again. You can also send us an error report to help us improve the Update assistant module.'|trans({})
+  } %}
+  {% include "@ModuleAutoUpgrade/components/progress-tracker.html.twig" with {
+    successRoute: 'restore-step-post-restore',
+    downloadLogsRoute: download_logs_route,
+    downloadLogsType: download_logs_type,
+  } %}
+{% endblock %}
+
+{% block buttons %}
+  <div class="page__buttons hidden" id="error-buttons">
+    {% include "@ModuleAutoUpgrade/components/form-open-error-report.html.twig" %}
+
+    <form
+      id="try-again-button"
+      name="try-again-button"
+      data-route-to-submit="{{ try_again_route }}"
+    >
+      <button class="btn btn-lg btn-primary" type="submit">
+        {{ 'Try again'|trans({}) }}
+      </button>
+    </form>
+  </div>
+{% endblock %}

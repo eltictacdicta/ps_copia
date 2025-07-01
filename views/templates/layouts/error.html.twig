@@ -1,0 +1,59 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+{% extends "@ModuleAutoUpgrade/layouts/page.html.twig" %}
+
+{% block update_assistant %}
+  <div id="ua_error_{{ error_code }}" class="error-page" {% if error_code %}data-error-code="{{ error_code }}"{% endif %}>
+    <div class="error-page__container">
+      {% block error_code %}
+        <div class="error-page__code">
+          {% for char in error_code|split('') %}<span class="error-page__code-char" data-error-code-char-index="{{ loop.index }}">{{ char == '0' ? 'O' : char }}</span>{% endfor %}
+        </div>
+      {% endblock %}
+
+      <div class="error-page__infos">
+        {% block title %}
+          <h2 class="error-page__title">
+            {{ 'Something went wrong...'|trans({}) }}
+          </h2>
+        {% endblock %}
+
+        {% block description %}
+          {# Default description can go here, or it can be left empty so that children can override it #}
+        {% endblock %}
+
+        <div class="error-page__buttons">
+          {% block buttons %}
+            {# Default buttons go here, and children can override them #}
+            <form class="error-page__home-page-form hidden" id="home-page-form" name="home-page-form" data-route-to-submit="{{ exit_to_app_home }}">
+              <button class="btn btn-primary btn-lg" type="submit">
+                {{ 'Go back to Update assistant'|trans({}) }}
+              </button>
+            </form>
+
+            <a class="btn btn-primary btn-lg hidden" id="exit-button" href="{{ exit_to_shop_admin }}">
+              <i class="material-icons">exit_to_app</i>
+              {{ 'Exit'|trans({}) }}
+            </a>
+          {% endblock %}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

@@ -1,0 +1,52 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+{% extends "@ModuleAutoUpgrade/components/render-field.html.twig" %}
+
+{% block action_content %}
+  <div class="render-field__backup-selection">
+    <label for="{{ form_fields.BACKUP_NAME }}">
+      {{ 'Select the backup you want to restore to'|trans({}) }}
+    </label>
+
+    <div class="render-field__backup-selection-wrapper">
+      <select class="form-control render-field__backup-selection-select" id="{{ form_fields.BACKUP_NAME }}" name="{{ form_fields.BACKUP_NAME }}">
+        {% for backup in backups_available %}
+          <option
+            value="{{ backup.filename }}"
+            {% if backup.filename == current_backup %}
+              selected
+            {% endif %}
+          >
+            {{ backup.datetime }} &nbsp;-&nbsp; {{ backup.filename }}
+          </option>
+        {% endfor %}
+      </select>
+
+      <button
+        class="btn btn-link render-field__backup-selection-delete"
+        name="action"
+        type="submit"
+        value="delete"
+      >
+        {{ 'Delete selection'|trans({}) }}
+        <i class="material-icons">delete</i>
+      </button>
+    </div>
+  </div>
+{% endblock %}

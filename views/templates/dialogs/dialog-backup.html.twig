@@ -1,0 +1,42 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+{% extends "@ModuleAutoUpgrade/components/dialog.html.twig" %}
+
+{% set title = 'Start backup?'|trans({}) %}
+{% set dialogSize = 'sm' %}
+{% set message = image_included ? 'Your files, database, and images will be backed up.'|trans({}) : 'Your files and database will be backed up.'|trans({}) %}
+
+{% block dialog_content %}
+  {{ parent() }}
+{% endblock %}
+
+{% block dialog_extra_content %}{% endblock %}
+
+{% block dialog_footer_inner %}
+  <button type="button" class="btn btn-link" data-dismiss="dialog">
+    {{ 'Cancel'|trans({}) }}
+  </button>
+
+  <form id="form-confirm-backup" name="form-confirm-backup" data-route-to-submit="{{ form_route_to_confirm_backup }}">
+    <button type="submit" class="btn btn-primary">
+      <i class="material-icons">settings_backup_restore</i>
+      {{ 'Start backup'|trans({}) }}
+    </button>
+  </form>
+{% endblock %}

@@ -1,0 +1,62 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+<dialog class="dialog {% if dialogDanger is defined and dialogDanger %}dialog--danger{% endif %} {% if dialogSize is defined and dialogSize is not empty %}dialog--{{ dialogSize }}{% else %}dialog--md{% endif %}"
+  {% if dialogId is defined and dialogId is not empty %}id="{{ dialogId }}"{% endif %}
+  aria-label="{{ title }}">
+  <div class="dialog__container">
+    <div class="dialog__content">
+      <div class="dialog__header">
+        <p class="dialog__title h2">
+          {{ title }}
+        </p>
+
+        <button type="button" class="close" data-dismiss="dialog" aria-label="Close">
+          <i class="material-icons">close</i>
+        </button>
+      </div>
+
+      <div class="dialog__body">
+        {% block dialog_content_wrapper %}
+          {% block dialog_content %}
+            {# Default content can go here, or it can be left empty so that children can override it #}
+            <p>
+              {{ message|raw }}
+            </p>
+          {% endblock %}
+
+          {% block dialog_extra_content %}
+            <div class="dialog__extra-content">
+              {% block dialog_extra_content_inner %}
+                {# Default extra content can go here, or it can be left empty so that children can override it #}
+              {% endblock %}
+            </div>
+          {% endblock %}
+        {% endblock %}
+      </div>
+
+      {% block dialog_footer %}
+        <div class="dialog__footer">
+          {% block dialog_footer_inner %}
+            {# Default footer content can go here, or it can be left empty so that children can override it #}
+          {% endblock %}
+        </div>
+      {% endblock %}
+    </div>
+  </div>
+</dialog>

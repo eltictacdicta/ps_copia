@@ -1,0 +1,91 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+{% extends "@ModuleAutoUpgrade/layouts/error.html.twig" %}
+
+{% block error_code %}
+  <div class="error-page__code">
+    <!-- Leave these 3 <span> on the same line or the code will be all broken -->
+    <span class="error-page__code-char" data-error-code-char-index="1"></span><span class="error-page__code-char" data-error-code-char-index="2"></span><span class="error-page__code-char" data-error-code-char-index="3"></span>
+  </div>
+{% endblock %}
+
+{% block description %}
+  <div class="error-page__desc">
+    <div class="error-page__desc-404 hidden">
+      <p>{{ 'The requested page or resource could not be found. This might be due to:'|trans({}) }}</p>
+      <ul>
+        <li>{{ 'A broken or outdated link.'|trans({}) }}</li>
+        <li>{{ 'The page being moved or deleted.'|trans({}) }}</li>
+        <li>{{ 'A typo in the URL.'|trans({}) }}</li>
+      </ul>
+    </div>
+
+    <div class="error-page__desc-500 hidden">
+      <p>{{ 'It seems there was an issue with the server. This type of error usually happens when:'|trans({}) }}</p>
+      <ul>
+        <li>{{ 'The server is temporarily unavailable.'|trans({}) }}</li>
+        <li>{{ 'There\'s a misconfiguration or unexpected problem on the server.'|trans({}) }}</li>
+      </ul>
+    </div>
+
+    <div class="error-page__desc-502 hidden">
+      <p>{{ 'It looks like there is no data received from the server. This can happen if:'|trans({}) }}</p>
+      <ul>
+        <li>{{ 'The server is temporarily unavailable.'|trans({}) }}</li>
+        <li>{{ 'There\'s an issue with the network or connection.'|trans({}) }}</li>
+      </ul>
+    </div>
+
+    <div class="error-page__desc-ETIMEDOUT hidden">
+      <p>{{ 'The request timed out. It seems the connection took too long to respond. This could be due to:'|trans({}) }}</p>
+      <ul>
+        <li>{{ 'A slow or unstable internet connection.'|trans({}) }}</li>
+        <li>{{ 'The server is currently busy or unresponsive.'|trans({}) }}</li>
+        <li>{{ 'Temporary network issues.'|trans({}) }}</li>
+      </ul>
+    </div>
+
+    <div class="error-page__desc-APP_ERR_RESPONSE_BAD_TYPE hidden">
+      <p>{{ 'The response received from the server in malformed. This can happen if:'|trans({}) }}</p>
+      <ul>
+        <li>{{ 'The request did not reach the module.'|trans({}) }}</li>
+        <li>{{ 'There’s an issue processing the response on the app or browser.'|trans({}) }}</li>
+      </ul>
+    </div>
+
+    <div class="error-page__desc-APP_ERR_RESPONSE_EMPTY hidden">
+      <p>{{ 'It looks like there is no data received from the server. This can happen if:'|trans({}) }}</p>
+      <ul>
+        <li>{{ 'The server is temporarily unavailable.'|trans({}) }}</li>
+        <li>{{ 'There\'s an issue with the network or connection.'|trans({}) }}</li>
+      </ul>
+    </div>
+
+    <div class="error-page__desc-unknown hidden">
+      <p>{{ 'An unknown error occurred. It was unexpected and may be caused by a temporary issue with the server.'|trans({}) }}</p>
+    </div>
+  </div>
+
+  <pre id="log-additional-contents" class="hidden"></pre>
+{% endblock %}
+
+{% block buttons %}
+  {% include "@ModuleAutoUpgrade/components/form-open-error-report.html.twig" %}
+  {{ parent() }}
+{% endblock %}

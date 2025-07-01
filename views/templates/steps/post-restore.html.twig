@@ -1,0 +1,89 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+{% extends "@ModuleAutoUpgrade/layouts/step-content.html.twig" %}
+
+{% block page_class %}post-restore-checklist-page{% endblock %}
+
+{% block title %}
+  <h2>{{ 'Post-restore checklist'|trans({}) }}</h2>
+{% endblock %}
+
+{% block content %}
+  <div class="content__container">
+    {% include "@ModuleAutoUpgrade/components/alert.html.twig" with {
+      title: 'Your restoration is complete'|trans({}),
+      message: 'Before continuing with your tasks, please review the following checklist to ensure smooth operation after recent recovery.'|trans({}),
+      alertStatus: 'success',
+    } %}
+
+    <div class="content__section">
+      <h3 class="h3">
+        {{ 'Next steps'|trans({}) }}
+      </h3>
+
+      <ul>
+        <li>
+          {{ '%startbold%Open the developer documentation%endbold% to keep this checklist at-hand.'|trans({
+            '%startbold%': '<b>',
+            '%endbold%': '</b>'
+          })|raw }}
+        </li>
+        <li>
+          {{ '%startbold%Disable the maintenance mode%endbold% in General settings > Maintenance.'|trans({
+            '%startbold%': '<b>',
+            '%endbold%': '</b>'
+          })|raw }}
+        </li>
+      </ul>
+    </div>
+
+    <div class="content__section">
+      <h3 class="h3">
+        {{ 'Troubleshooting'|trans({}) }}
+      </h3>
+
+      <ul>
+        <li>
+          {{ 'If you can\'t access your back office, try emptying the cache.'|trans({}) }}
+        </li>
+      </ul>
+    </div>
+
+    {% if download_logs is defined %}
+      <div class="content__section">
+        <a class="link" href="{{ download_logs.download_path }}" download="{{ download_logs.filename }}" data-au-tracking="{{ download_logs.button_tracking_event }}">
+          {{ download_logs.button_label }}
+          <i class="material-icons">file_upload</i>
+        </a>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block buttons_inner %}
+  <a class="btn btn-lg btn-default" href="{{ exit_link }}">
+    <i class="material-icons">exit_to_app</i>
+    {{ 'Exit'|trans({}) }}
+  </a>
+
+  <a class="btn btn-lg btn-primary" type="button" href="{{ dev_doc_link }}" target="_blank" data-au-tracking="Developer documentation clicked">
+    <i class="material-icons">launch</i>
+    {{ 'Open developer documentation'|trans({}) }}
+  </a>
+{% endblock %}

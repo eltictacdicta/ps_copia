@@ -1,0 +1,73 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+{% extends "@ModuleAutoUpgrade/layouts/step-content.html.twig" %}
+
+{% block page_class %}update-options-page{% endblock %}
+
+{% block title %}
+  <h2>{{ step.title }}</h2>
+{% endblock %}
+
+{% block content %}
+  <form 
+    class="update-options-page__field-list"
+    action=""
+    data-route-to-save="{{ form_route_to_save }}"
+    data-route-to-submit="{{ form_route_to_submit }}"
+    id="update-options-page-form"
+    name="update-options-page-form"
+  >
+    {% include "@ModuleAutoUpgrade/components/render-switch.html.twig" with {
+      id: form_fields.deactive_non_native_modules.field,
+      name: form_fields.deactive_non_native_modules.field,
+      title: "Deactivate non-native modules"|trans({}),
+      description: "All the modules installed after creating your store are considered non-native modules. They might be incompatible with the new version of PrestaShop. We recommend deactivating them during the update."|trans({}),
+      value: form_fields.deactive_non_native_modules.value,
+      error_message: errors[form_fields.deactive_non_native_modules.field] is defined ? errors[form_fields.deactive_non_native_modules.field] : null,
+    } %}
+
+    {% include "@ModuleAutoUpgrade/components/render-switch.html.twig" with {
+      id: form_fields.regenerate_email_templates.field,
+      name: form_fields.regenerate_email_templates.field,
+      title: "Regenerate email templates"|trans({}),
+      description: "If you've customized email templates, your changes will be lost if you activate this option."|trans({}),
+      value: form_fields.regenerate_email_templates.value,
+      error_message: errors[form_fields.regenerate_email_templates.field] is defined ? errors[form_fields.regenerate_email_templates.field] : null,
+    } %}
+
+    {% include "@ModuleAutoUpgrade/components/render-switch.html.twig" with {
+      id: form_fields.disable_all_overrides.field,
+      name: form_fields.disable_all_overrides.field,
+      title: "Disable all overrides"|trans({}),
+      description: "Overriding is a way to replace business behaviors (class files and controller files) to target only one method or as many as you need. This option disables all classes & controllers overrides, allowing you to avoid conflicts during and after updates."|trans({}),
+      value: form_fields.disable_all_overrides.value,
+      error_message: errors[form_fields.disable_all_overrides.field] is defined ? errors[form_fields.disable_all_overrides.field] : null,
+    } %}
+  </form>
+{% endblock %}
+
+{% block buttons_inner %}
+  <button
+    class="btn btn-lg btn-primary" type="submit"
+    form="update-options-page-form"
+  >
+    {{ 'Next'|trans({}) }}
+    <i class="material-icons">arrow_forward</i>
+  </button>
+{% endblock %}

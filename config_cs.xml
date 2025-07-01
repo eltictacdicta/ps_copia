@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<module>
+    <name>ps_copia</name>
+    <displayName><![CDATA[Asistente de Copias de Seguridad]]></displayName>
+    <version><![CDATA[1.0.0]]></version>
+    <description><![CDATA[El m&oacute;dulo Asistente de Copias de Seguridad te ayuda a crear copias de seguridad y restaurar tu tienda PrestaShop.]]></description>
+    <author><![CDATA[PrestaShop]]></author>
+    <tab><![CDATA[administration]]></tab>
+    <is_configurable>1</is_configurable>
+    <need_instance>1</need_instance>
+</module>

@@ -1,0 +1,84 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+{% extends "@ModuleAutoUpgrade/layouts/step-content.html.twig" %}
+
+{% block page_class %}backup-page{% endblock %}
+
+{% block title %}
+  <h2>{{ 'Back up your store'|trans({}) }}</h2>
+{% endblock %}
+
+{% block content %}
+  <div class="backup-page__container">
+    <div class="backup-page__section">
+      <p>
+        {{ "Backing up your store's files, database, and images means you can restore to a previous version if something goes wrong during the update. This keeps your data safe and ensures your business stays up and running."|trans({}) }}
+      </p>
+    </div>
+
+    {% if backup_completed %}
+      <div class="check-requirements check-requirements--success">
+        {% include "@ModuleAutoUpgrade/components/alert.html.twig" with {
+          title: 'Backup completed'|trans({}),
+          message: 'It is available at /your-admin-directory/autoupgrade/backup.'|trans({}),
+          alertStatus: 'success',
+          buttonLabel: 'Download backup logs'|trans({}),
+          buttonUrl: download_path,
+          buttonDownload: filename,
+          buttonTrack: tracking_event,
+        } %}
+      </div>
+    {% endif %}
+    <div class="
+      backup-page__section
+      {% if backup_completed %}hidden{% endif %}
+    ">
+      <form
+        class="update-backup-page__field-list"
+        action=""
+        data-route-to-save="{{ form_route_to_save }}"
+        data-route-to-submit="{{ form_route_to_submit_backup }}"
+        id="update-backup-page-form"
+        name="update-backup-page-form"
+      >
+        {% include "@ModuleAutoUpgrade/components/render-switch.html.twig" with {
+          id: form_fields.include_images.field,
+          name: form_fields.include_images.field,
+          title: 'Include images in your backup'|trans({}),
+          value: form_fields.include_images.value,
+          error_message: errors[form_fields.include_images.field] is defined ? errors[form_fields.include_images.field] : null,
+        } %}
+      </form>
+    </div>
+  </div>
+{% endblock %}
+
+{% block buttons_inner %}
+  {% if backup_completed %}
+      <a href="{{ path(constant('PrestaShop\\Module\\AutoUpgrade\\Router\\Routes::HOME_PAGE')) }}" class="btn btn-lg btn-primary">
+        {{ 'Go back to home page'|trans({}) }}
+      </a>
+  {% else %}
+    <button class="btn btn-lg btn-primary" type="submit"
+      form="update-backup-page-form"
+    >
+      {{ 'Launch backup'|trans({}) }}
+    </button>
+  {% endif %}
+{% endblock %}

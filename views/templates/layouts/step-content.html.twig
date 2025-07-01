@@ -1,0 +1,45 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+{% block step_content %}
+  <div
+    id="ua_step_content"
+    class="{% block page_class %}default-page{% endblock %}"
+    {% if initial_process_action is defined %}data-initial-process-action="{{ initial_process_action }}"{% endif %}
+  >
+    <div class="page__title">
+      {% block title %}
+        {# Default title can go here, or it can be left empty so that children can override it #}
+      {% endblock %}
+    </div>
+
+    <div class="page__content">
+      {% block content %}
+        {# Default content can go here, or it can be left empty so that children can override it #}
+      {% endblock %}
+    </div>
+
+    {% block buttons %}
+      <div class="page__buttons">
+        {% block buttons_inner %}
+          {# Default buttons can go here, or it can be left empty so that children can override it #}
+        {% endblock %}
+      </div>
+    {% endblock %}
+  </div>
+{% endblock %}

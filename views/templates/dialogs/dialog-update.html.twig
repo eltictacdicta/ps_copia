@@ -1,0 +1,74 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+{% extends "@ModuleAutoUpgrade/components/dialog.html.twig" %}
+
+{% set title = 'Start update?'|trans({}) %}
+
+{% block dialog_content_wrapper %}
+  <form
+    class="dialog__spacer"
+    action=""
+    data-route-to-submit="{{ form_route_to_confirm }}"
+    id="form-confirm-update"
+    name="form-confirm-update"
+  >
+    {% block dialog_content %}
+      {% if not backup_completed %}
+        <p>
+          {{ 'Before starting the update, make sure you have a complete and recent backup of your store (database, files, and images).'|trans({}) }}
+        </p>
+      {% else %}
+        {% set message = 'You are about to launch the update, do you want to continue?'|trans({}) %}
+        {{ parent() }}
+      {% endif %}
+    {% endblock %}
+
+    {% block dialog_extra_content %}
+      {% if not backup_completed %}
+        <div class="dialog__no-backup checkbox">
+          <label>
+            <input type="checkbox" value="" id="dialog-start-update-own-backup"/>
+            {{ 'I have made my own backup and can restore it manually if a problem occur.'|trans({}) }}
+          </label>
+        </div>
+      {% endif %}
+    {% endblock %}
+  </form>
+{% endblock %}
+
+{% block dialog_footer_inner %}
+  <button type="button" class="btn btn-link" data-dismiss="dialog">
+    {{ 'Cancel'|trans({}) }}
+  </button>
+
+  <button
+    type="submit"
+    class="btn btn-primary"
+    form="form-confirm-update"
+  >
+    <img
+      class="dialog__rocket-icon rocket-icon"
+      src="{{ assets_base_path }}/img/rocket_white.svg"
+      width="20"
+      height="20"
+      alt=""
+    />
+    {{ 'Start update'|trans({}) }}
+  </button>
+{% endblock %}

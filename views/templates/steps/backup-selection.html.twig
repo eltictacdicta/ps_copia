@@ -1,0 +1,52 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+{% extends "@ModuleAutoUpgrade/layouts/step-content.html.twig" %}
+
+{% block page_class %}backup-selection-page{% endblock %}
+
+{% block title %}
+  <h2>{{ step.title }}</h2>
+{% endblock %}
+
+{% block content %}
+  <form
+    class="form-group backup-selection mb-0"
+    data-route-to-save="{{ form_route_to_save }}"
+    data-route-to-submit-restore="{{ form_route_to_submit_restore }}"
+    data-route-to-submit-delete="{{ form_route_to_submit_delete }}"
+    id="{{ form_backup_selection_name }}"
+    name="{{ form_backup_selection_name }}"
+  >
+    {% include "@ModuleAutoUpgrade/components/render-backup-selection.html.twig" with {
+      id: form_fields.BACKUP_NAME,
+      name: form_fields.BACKUP_NAME,
+      title: 'Select the backup you want to restore to'|trans({}),
+      choices: backups_available,
+      value: current_backup,
+      error_message: errors[form_fields.BACKUP_NAME] is defined ? errors[form_fields.BACKUP_NAME] : null,
+      backup_selection: true,
+    } %}
+  </form>
+{% endblock %}
+
+{% block buttons_inner %}
+  <button class="btn btn-lg btn-primary" form="{{ form_backup_selection_name }}" type="submit">
+    {{ 'Restore'|trans({}) }}
+  </button>
+{% endblock %}

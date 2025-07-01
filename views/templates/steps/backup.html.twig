@@ -1,0 +1,75 @@
+{#**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ *#}
+{% extends "@ModuleAutoUpgrade/layouts/step-content.html.twig" %}
+
+{% block page_class %}update-page{% endblock %}
+
+{% block title %}
+  <h2>{{ step.title }}</h2>
+{% endblock %}
+
+{% block content %}
+  <div class="backup-page__section mb-3">
+    <p>
+      {{ "Backing up your store's files, database, and images means you can restore to a previous version if something goes wrong during the update. This keeps your data safe and ensures your business stays up and running."|trans({}) }}
+    </p>
+  </div>
+
+  {% include "@ModuleAutoUpgrade/components/alert.html.twig" with {
+    id: 'error-alert',
+    hidden: true,
+    alertStatus: 'warning',
+    title: 'Backup failed'|trans({}),
+    message: 
+      'Please try again or perform a manual backup. In any case, ensure you have a backup before starting the update to avoid any data loss.'|trans({}),
+    buttonLabel: 'Retry backup'|trans({}),
+    formRoute: retry_route,
+    formName: 'retry-alert',
+  } %}
+  {% include "@ModuleAutoUpgrade/components/progress-tracker.html.twig" with {
+    successRoute: success_route,
+    downloadLogsRoute: download_logs_route,
+    downloadLogsType: download_logs_type,
+  } %}
+{% endblock %}
+
+{% block buttons %}
+  <div class="page__buttons hidden" id="error-buttons">
+    <form
+      id="submit-skip-backup"
+      name="submit-skip-backup"
+      data-route-to-submit="{{ submit_skip_backup_route }}"
+    >
+      <button class="btn btn-lg btn-link" type="submit">
+        {{ 'Update without backup'|trans({}) }}
+      </button>
+    </form>
+    {% include "@ModuleAutoUpgrade/components/form-open-error-report.html.twig" %}
+
+    <form
+      id="retry-button"
+      name="retry-button"
+      data-route-to-submit="{{ retry_route }}"
+    >
+      <button class="btn btn-lg btn-primary" type="submit">
+        {{ 'Retry backup'|trans({}) }}
+      </button>
+    </form>
+  </div>
+{% endblock %}
