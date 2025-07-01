@@ -399,7 +399,26 @@ function afterRestoreFiles(params) {
 
 function afterBackupFiles(res) {
   var params = res.nextParams;
-  // if (params.stepDone)
+  
+  if (res.stepDone) {
+    // Hide the loading indicator
+    $("#pleaseWait").hide();
+    $("#currentlyProcessing").hide();
+    
+    // Show success message
+    addQuickInfo([input.translation.endOfProcess || "Backup de archivos completado correctamente"]);
+    
+    // Update UI to show backup was completed
+    $("#backupFiles").addClass("stepok done");
+    
+    // If there's backup data, update the restore dropdown
+    if (params && params.files && params.files.backup_name) {
+      $("#restoreBackupContainer").show();
+      var backupName = params.files.backup_name;
+      $("select[name=restoreName]")
+        .append("<option value=\"" + backupName + "\">" + backupName + "</option>");
+    }
+  }
 }
 
 /**
@@ -408,12 +427,35 @@ function afterBackupFiles(res) {
 function afterBackupDb(res) {
   var params = res.nextParams;
 
-  if (res.stepDone && input.PS_AUTOUP_BACKUP === true) {
-    $("#restoreBackupContainer").show();
-    $("select[name=restoreName]")
-      .append("<option selected=\"selected\" value=\"" + params.backupName + "\">" + params.backupName + "</option>")
-      .val('')
-      .change();
+  if (res.stepDone) {
+    // Hide the loading indicator
+    $("#pleaseWait").hide();
+    $("#currentlyProcessing").hide();
+    
+    // Show success message
+    addQuickInfo([input.translation.endOfProcess || "Backup de base de datos completado correctamente"]);
+    
+    // Update UI to show backup was completed
+    $("#backupDb").addClass("stepok done");
+    
+    if (input.PS_AUTOUP_BACKUP === true) {
+      $("#restoreBackupContainer").show();
+      
+      // Add backup to restore dropdown if we have backup info
+      var backupName = '';
+      if (params && params.database && params.database.backup_name) {
+        backupName = params.database.backup_name;
+      } else if (params && params.backupName) {
+        backupName = params.backupName;
+      }
+      
+      if (backupName) {
+        $("select[name=restoreName]")
+          .append("<option selected=\"selected\" value=\"" + backupName + "\">" + backupName + "</option>")
+          .val('')
+          .change();
+      }
+    }
   }
 }
 

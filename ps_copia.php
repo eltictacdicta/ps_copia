@@ -18,6 +18,11 @@
  * @copyright Since 2007 PrestaShop SA and Contributors
  * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
  */
+
+if (!defined('_PS_VERSION_')) {
+    exit;
+}
+
 class Ps_copia extends Module
 {
     /**
@@ -26,7 +31,7 @@ class Ps_copia extends Module
     public $multishop_context;
 
     /**
-     * @var \PrestaShop\Module\PsCopia\BackupContainer
+     * @var \PrestaShop\Module\PsCopia\BackupContainer|null
      */
     protected $container;
 
@@ -35,7 +40,7 @@ class Ps_copia extends Module
         $this->name = 'ps_copia';
         $this->tab = 'administration';
         $this->author = 'PrestaShop';
-        $this->version = '1.0.0';
+        $this->version = '1.0.1';
         $this->need_instance = 1;
         $this->module_key = '926bc3e16738b7b834f37fc63d59dcf8';
 
@@ -44,19 +49,22 @@ class Ps_copia extends Module
 
         $this->multishop_context = Shop::CONTEXT_ALL;
 
-        $this->displayName = 'Asistente de Copias de Seguridad';
-        $this->description = 'El módulo Asistente de Copias de Seguridad te ayuda a crear copias de seguridad y restaurar tu tienda PrestaShop.';
+        // Load autoloader before using module classes
+        $this->initAutoloaderIfCompliant();
+
+        $this->displayName = $this->trans('Backup Assistant', [], 'Modules.Pscopia.Admin');
+        $this->description = $this->trans('The Backup Assistant module helps you create backups and restore your PrestaShop store. With just a few clicks, you can create and restore backups with confidence.', [], 'Modules.Pscopia.Admin');
 
         $this->ps_versions_compliancy = ['min' => '1.7.0.0', 'max' => _PS_VERSION_];
     }
 
     /**
-     * following the Core documentation :
+     * Following the Core documentation for new translation system
      * https://devdocs.prestashop-project.org/8/modules/creation/module-translation/new-system/#translating-your-module
      *
      * @return bool
      */
-    public function isUsingNewTranslationSystem()
+    public function isUsingNewTranslationSystem(): bool
     {
         return true;
     }
@@ -64,47 +72,108 @@ class Ps_copia extends Module
     /**
      * @return bool
      */
-    public function install()
+    public function install(): bool
     {
-        // Load required classes directly
-        if (!class_exists('PrestaShop\Module\PsCopia\Exceptions\UpgradeException')) {
-            require_once _PS_MODULE_DIR_ . '/ps_copia/classes/Exceptions/UpgradeException.php';
+        if (!$this->checkRequirements()) {
+            return false;
         }
-        if (!class_exists('PrestaShop\Module\PsCopia\VersionUtils')) {
-            require_once _PS_MODULE_DIR_ . '/ps_copia/classes/VersionUtils.php';
+
+        if (!$this->createTabs()) {
+            return false;
         }
-        if (!class_exists('PrestaShop\Module\PsCopia\UpgradeTools\Translator')) {
-            require_once _PS_MODULE_DIR_ . '/ps_copia/classes/UpgradeTools/Translator.php';
-        }
+
+        return parent::install() 
+            && $this->registerHook('displayBackOfficeHeader') 
+            && $this->registerHook('displayBackOfficeEmployeeMenu');
+    }
+
+    /**
+     * Check system requirements
+     *
+     * @return bool
+     */
+    private function checkRequirements(): bool
+    {
+        // Load required classes directly for installation
+        $this->loadRequiredClasses();
         
         if (!\PrestaShop\Module\PsCopia\VersionUtils::isActualPHPVersionCompatible()) {
             $this->_errors[] = $this->trans(
                 'This module requires PHP %s to work properly. Please upgrade your server configuration.',
-                [\PrestaShop\Module\PsCopia\VersionUtils::getHumanReadableVersionOf(\PrestaShop\Module\PsCopia\VersionUtils::MODULE_COMPATIBLE_PHP_VERSION)]
+                [\PrestaShop\Module\PsCopia\VersionUtils::getHumanReadableVersionOf(\PrestaShop\Module\PsCopia\VersionUtils::MODULE_COMPATIBLE_PHP_VERSION)],
+                'Modules.Pscopia.Admin'
             );
-
             return false;
         }
 
-        // If the "AdminPsCopia" tab does not exist yet, create it
+        // Check required PHP extensions
+        $requiredExtensions = ['zip', 'mysqli'];
+        $missingExtensions = [];
+        
+        foreach ($requiredExtensions as $extension) {
+            if (!extension_loaded($extension)) {
+                $missingExtensions[] = $extension;
+            }
+        }
+        
+        if (!empty($missingExtensions)) {
+            $this->_errors[] = $this->trans(
+                'The following PHP extensions are required: %s',
+                [implode(', ', $missingExtensions)],
+                'Modules.Pscopia.Admin'
+            );
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Load required classes for installation
+     *
+     * @return void
+     */
+    private function loadRequiredClasses(): void
+    {
+        $classesToLoad = [
+            'PrestaShop\Module\PsCopia\Exceptions\UpgradeException' => '/classes/Exceptions/UpgradeException.php',
+            'PrestaShop\Module\PsCopia\VersionUtils' => '/classes/VersionUtils.php',
+            'PrestaShop\Module\PsCopia\UpgradeTools\Translator' => '/classes/UpgradeTools/Translator.php',
+        ];
+
+        foreach ($classesToLoad as $className => $filePath) {
+            if (!class_exists($className)) {
+                require_once _PS_MODULE_DIR_ . '/ps_copia' . $filePath;
+            }
+        }
+    }
+
+    /**
+     * Create module tabs
+     *
+     * @return bool
+     */
+    private function createTabs(): bool
+    {
+        // Main tab
         $moduleTabName = 'AdminPsCopia';
         if (!Tab::getIdFromClassName($moduleTabName)) {
             $tab = new Tab();
             $tab->class_name = $moduleTabName;
             $tab->icon = 'content_copy';
             $tab->module = 'ps_copia';
-
-            // We use DEFAULT to add Upgrade tab as a standalone tab in the back office menu
             $tab->id_parent = (int) Tab::getIdFromClassName('CONFIGURE');
 
             foreach (Language::getLanguages(false) as $lang) {
-                $tab->name[(int) $lang['id_lang']] = 'Asistente de Copias';
+                $tab->name[(int) $lang['id_lang']] = $this->trans('Backup Assistant', [], 'Modules.Pscopia.Admin');
             }
+            
             if (!$tab->save()) {
-                return $this->_abortInstall($this->trans('Unable to create the %s tab', [$moduleTabName]));
+                return $this->_abortInstall($this->trans('Unable to create the %s tab', [$moduleTabName], 'Modules.Pscopia.Admin'));
             }
         }
 
+        // Ajax tab
         $ajaxTabName = 'AdminPsCopiaAjax';
         if (!Tab::getIdFromClassName($ajaxTabName)) {
             $ajaxTab = new Tab();
@@ -113,20 +182,21 @@ class Ps_copia extends Module
             $ajaxTab->id_parent = -1;
 
             foreach (Language::getLanguages(false) as $lang) {
-                $ajaxTab->name[(int) $lang['id_lang']] = 'Asistente de Copias';
+                $ajaxTab->name[(int) $lang['id_lang']] = $this->trans('Backup Assistant Ajax', [], 'Modules.Pscopia.Admin');
             }
+            
             if (!$ajaxTab->save()) {
-                return $this->_abortInstall($this->trans('Unable to create the %s tab', [$ajaxTabName]));
+                return $this->_abortInstall($this->trans('Unable to create the %s tab', [$ajaxTabName], 'Modules.Pscopia.Admin'));
             }
         }
 
-        return parent::install() && $this->registerHook('displayBackOfficeHeader') && $this->registerHook('displayBackOfficeEmployeeMenu');
+        return true;
     }
 
     /**
      * @return bool
      */
-    public function uninstall()
+    public function uninstall(): bool
     {
         // Delete the module Back-office tab
         $id_tab = Tab::getIdFromClassName('AdminPsCopia');
@@ -141,7 +211,7 @@ class Ps_copia extends Module
             $ajaxTab->delete();
         }
 
-        // Remove the 1-click upgrade working directory
+        // Remove the working directory
         if (defined('_PS_ADMIN_DIR_')) {
             self::_removeDirectory(_PS_ADMIN_DIR_ . DIRECTORY_SEPARATOR . 'ps_copia');
         }
@@ -150,11 +220,12 @@ class Ps_copia extends Module
     }
 
     /**
-     * @return string
+     * Redirect to module configuration
+     *
+     * @return void
      */
-    public function getContent()
+    public function getContent(): void
     {
-        // Redirigir siempre al controlador principal para la interfaz de usuario
         Tools::redirectAdmin($this->context->link->getAdminLink('AdminPsCopia'));
     }
 
@@ -165,19 +236,20 @@ class Ps_copia extends Module
      *
      * @return bool Always false
      */
-    protected function _abortInstall($error)
+    protected function _abortInstall(string $error): bool
     {
         $this->_errors[] = $error;
-
         return false;
     }
 
     /**
+     * Remove directory recursively
+     *
      * @param string $dir
      *
      * @return void
      */
-    private static function _removeDirectory($dir)
+    private static function _removeDirectory(string $dir): void
     {
         if ($handle = @opendir($dir)) {
             while (false !== ($entry = @readdir($handle))) {
@@ -196,29 +268,93 @@ class Ps_copia extends Module
     }
 
     /**
-     * Adapter for trans calls, existing only on PS 1.7.
-     * Making them available for PS 1.6 as well.
+     * Translation adapter compatible with PS 1.7+
      *
      * @param string $id
-     * @param array<int|string, int|string> $parameters $parameters
-     * @param string $domain
-     * @param string $locale
+     * @param array<int|string, int|string> $parameters
+     * @param string|null $domain
+     * @param string|null $locale
      *
      * @return string
      */
     public function trans($id, array $parameters = [], $domain = null, $locale = null)
     {
-        if (isset($this->container)) {
+        // For PrestaShop 8+ use the Translator service if available
+        if (class_exists('\Symfony\Component\Translation\TranslatorInterface') && $this->get && method_exists($this, 'get')) {
+            try {
+                $translator = $this->get('translator');
+                if ($translator && method_exists($translator, 'trans')) {
+                    return $translator->trans($id, $parameters, $domain, $locale);
+                }
+            } catch (Exception $e) {
+                // Continue to fallback if service is not available
+            }
+        }
+
+        // Try to use PrestaShop's legacy translation system
+        if (class_exists('Translate') && method_exists('Translate', 'getModuleTranslation')) {
+            try {
+                $translated = Translate::getModuleTranslation('ps_copia', $id, 'ps_copia');
+                if ($translated !== $id) {
+                    return $this->applyTranslationParameters($translated, $parameters);
+                }
+            } catch (Exception $e) {
+                // Continue to fallback
+            }
+        }
+
+        // Fallback to our custom translator
+        if (isset($this->container) && $this->container) {
             return $this->container->getTranslator()->trans($id, $parameters);
         }
         
-        // Fallback si no hay container disponible
-        $translator = new \PrestaShop\Module\PsCopia\UpgradeTools\Translator(
-            _PS_ROOT_DIR_ . DIRECTORY_SEPARATOR . 'modules' . DIRECTORY_SEPARATOR . 'ps_copia' . DIRECTORY_SEPARATOR . 'translations' . DIRECTORY_SEPARATOR,
-            \Context::getContext()->language->iso_code
-        );
+        // Try to create translator with safe defaults
+        try {
+            $languageCode = 'en';
+            if (class_exists('Context') && Context::getContext() && Context::getContext()->language) {
+                $languageCode = Context::getContext()->language->iso_code;
+            }
+            
+            $translationsPath = _PS_MODULE_DIR_ . '/ps_copia/translations/';
+            if (class_exists('\PrestaShop\Module\PsCopia\UpgradeTools\Translator')) {
+                $translator = new \PrestaShop\Module\PsCopia\UpgradeTools\Translator($translationsPath, $languageCode);
+                return $translator->trans($id, $parameters);
+            }
+        } catch (Exception $e) {
+            // Last resort: return the original string with parameters applied
+        }
+        
+        // Last resort fallback: return original string with parameters
+        return $this->applyTranslationParameters($id, $parameters);
+    }
 
-        return $translator->trans($id, $parameters);
+    /**
+     * Apply parameters to a translation string
+     *
+     * @param string $text
+     * @param array $parameters
+     * @return string
+     */
+    private function applyTranslationParameters($text, array $parameters = [])
+    {
+        if (empty($parameters)) {
+            return $text;
+        }
+
+        // Replace placeholders for non-numeric keys
+        foreach ($parameters as $placeholder => $value) {
+            if (is_int($placeholder)) {
+                continue;
+            }
+            $text = str_replace($placeholder, $value, $text);
+            unset($parameters[$placeholder]);
+        }
+
+        if (!count($parameters)) {
+            return $text;
+        }
+
+        return call_user_func_array('sprintf', array_merge([$text], $parameters));
     }
 
     /**
@@ -227,60 +363,85 @@ class Ps_copia extends Module
      *
      * @return string
      */
-    public function hookDisplayBackOfficeHeader()
+    public function hookDisplayBackOfficeHeader(): string
     {
-        // No necesitamos notificaciones de actualización en el módulo ps_copia
-        // Solo manejamos copias de seguridad y restauración
+        // Add CSS/JS if needed for the backup module interface
         return '';
     }
 
     /**
      * Only available from PS8.
+     * Add action button to employee menu if available
      *
      * @param array{links: \PrestaShop\PrestaShop\Core\Action\ActionsBarButtonsCollection} $params
      *
      * @return void
      */
-    public function hookDisplayBackOfficeEmployeeMenu(array $params)
+    public function hookDisplayBackOfficeEmployeeMenu(array $params): void
     {
         if (!$this->initAutoloaderIfCompliant()) {
             return;
         }
 
-        // TODO: Crear la clase DisplayBackOfficeEmployeeMenu si es necesaria
-        // (new \PrestaShop\Module\PsCopia\Hooks\DisplayBackOfficeEmployeeMenu($this->getBackupContainer(), $params, $this->context))
-        //     ->run();
+        // Check if PS8 classes are available
+        if (!class_exists('\PrestaShop\PrestaShop\Core\Action\ActionsBarButtonsCollection') 
+            || !class_exists('\PrestaShop\PrestaShop\Core\Action\ActionsBarButton')
+            || !($params['links'] instanceof \PrestaShop\PrestaShop\Core\Action\ActionsBarButtonsCollection)) {
+            return;
+        }
+
+        $params['links']->add(
+            new \PrestaShop\PrestaShop\Core\Action\ActionsBarButton(
+                __CLASS__,
+                [
+                    'link' => $this->context->link->getAdminLink('AdminPsCopia'),
+                    'icon' => 'content_copy',
+                    'isExternalLink' => false,
+                ],
+                $this->trans('Backup Assistant', [], 'Modules.Pscopia.Admin')
+            )
+        );
     }
 
     /**
+     * Initialize autoloader if system is compatible
+     *
      * @return bool
      */
-    public function initAutoloaderIfCompliant()
+    public function initAutoloaderIfCompliant(): bool
     {
         if (!isset($this->container)) {
-            if (file_exists(_PS_MODULE_DIR_ . '/ps_copia/vendor/autoload.php')) {
-                require_once _PS_MODULE_DIR_ . '/ps_copia/vendor/autoload.php';
-                $this->getBackupContainer();
+            $autoloadPath = _PS_MODULE_DIR_ . '/ps_copia/vendor/autoload.php';
+            if (file_exists($autoloadPath)) {
+                require_once $autoloadPath;
+                
+                // Only initialize container if admin dir is available
+                if (defined('_PS_ADMIN_DIR_') && defined('_PS_ROOT_DIR_')) {
+                    $this->getBackupContainer();
+                }
             }
         }
-        // During install, container is not set
-        if (!isset($this->container)) {
-            return false;
-        }
-
-        return true;
+        
+        // Return true if autoloader was loaded successfully
+        return class_exists('\PrestaShop\Module\PsCopia\UpgradeTools\Translator');
     }
 
     /**
-     * @return \PrestaShop\Module\PsCopia\BackupContainer
+     * Get backup container instance
+     *
+     * @return \PrestaShop\Module\PsCopia\BackupContainer|null
      */
-    public function getBackupContainer()
+    public function getBackupContainer(): ?\PrestaShop\Module\PsCopia\BackupContainer
     {
-        if (!isset($this->container)) {
-            $this->container = new \PrestaShop\Module\PsCopia\BackupContainer(_PS_ROOT_DIR_, _PS_ADMIN_DIR_, 'ps_copia');
+        if (!isset($this->container) && defined('_PS_ROOT_DIR_') && defined('_PS_ADMIN_DIR_')) {
+            $this->container = new \PrestaShop\Module\PsCopia\BackupContainer(
+                _PS_ROOT_DIR_, 
+                _PS_ADMIN_DIR_, 
+                'ps_copia'
+            );
             $this->container->initDirectories();
         }
 
-        return $this->container;
+        return $this->container ?? null;
     }
 }
