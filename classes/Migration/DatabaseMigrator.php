@@ -143,15 +143,21 @@ class DatabaseMigrator
      */
     private function validateMigrationConfig(array $config): void
     {
-        // Check required fields if URL migration is enabled
+        // Check required fields if URL migration is enabled AND auto-detection failed
         if (isset($config['migrate_urls']) && $config['migrate_urls']) {
-            if (empty($config['old_url']) || empty($config['new_url'])) {
-                throw new Exception('URLs antiguas y nuevas son requeridas para la migración de URLs');
+            // Only require URLs if auto-detection was unable to find them
+            if (empty($config['old_url']) && empty($config['new_url'])) {
+                $this->logger->warning('No se pudieron autodetectar las URLs, pero la migración de URLs sigue habilitada');
+            } elseif (empty($config['old_url']) || empty($config['new_url'])) {
+                $this->logger->info('Solo se detectó una URL (origen o destino), la migración continuará con URLs disponibles');
             }
 
-            // Validate URL format
-            if (!filter_var($config['old_url'], FILTER_VALIDATE_URL) || !filter_var($config['new_url'], FILTER_VALIDATE_URL)) {
-                throw new Exception('Las URLs deben tener un formato válido');
+            // Validate URL format only if URLs are present
+            if (!empty($config['old_url']) && !filter_var($config['old_url'], FILTER_VALIDATE_URL)) {
+                throw new Exception('La URL antigua debe tener un formato válido: ' . $config['old_url']);
+            }
+            if (!empty($config['new_url']) && !filter_var($config['new_url'], FILTER_VALIDATE_URL)) {
+                throw new Exception('La URL nueva debe tener un formato válido: ' . $config['new_url']);
             }
         }
 
