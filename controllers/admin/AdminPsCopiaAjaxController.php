@@ -133,6 +133,12 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                 case 'validate_backup':
                     $this->handleValidateBackup();
                     break;
+                case 'restore_database_only':
+                    $this->handleRestoreDatabaseOnly();
+                    break;
+                case 'restore_files_only':
+                    $this->handleRestoreFilesOnly();
+                    break;
                 case 'get_disk_space':
                     $this->handleGetDiskSpace();
                     break;
@@ -647,18 +653,16 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
     private function handleListBackups(): void
     {
         try {
-            $individualBackups = $this->backupContainer->getAvailableBackups();
             $completeBackups = $this->getCompleteBackups();
             $diskInfo = $this->backupContainer->getDiskSpaceInfo();
             
-            // Merge and sort all backups by date
-            $allBackups = array_merge($completeBackups, $individualBackups);
-            usort($allBackups, function($a, $b) {
-                return strcmp($b['date'], $a['date']); // Most recent first
+            // Sort complete backups by date (most recent first)
+            usort($completeBackups, function($a, $b) {
+                return strcmp($b['date'], $a['date']);
             });
             
             $this->ajaxSuccess('Backups retrieved successfully', [
-                'backups' => $allBackups,
+                'backups' => $completeBackups,
                 'disk_info' => $diskInfo
             ]);
         } catch (Exception $e) {
@@ -712,9 +716,35 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         }
 
         try {
-            $this->backupContainer->deleteBackup($backupName);
-            $this->logger->info("Backup deleted: " . $backupName);
-            $this->ajaxSuccess("Backup deleted successfully: " . $backupName);
+            // Check if it's a complete backup
+            $metadata = $this->getBackupMetadata();
+            
+            if (isset($metadata[$backupName])) {
+                // It's a complete backup, delete both files and metadata
+                $backupInfo = $metadata[$backupName];
+                
+                // Delete database file
+                if (file_exists($this->backupContainer->getProperty(BackupContainer::BACKUP_PATH) . '/' . $backupInfo['database_file'])) {
+                    $this->backupContainer->deleteBackup($backupInfo['database_file']);
+                }
+                
+                // Delete files backup
+                if (file_exists($this->backupContainer->getProperty(BackupContainer::BACKUP_PATH) . '/' . $backupInfo['files_file'])) {
+                    $this->backupContainer->deleteBackup($backupInfo['files_file']);
+                }
+                
+                // Remove from metadata
+                unset($metadata[$backupName]);
+                $this->saveCompleteBackupMetadata($metadata);
+                
+                $this->logger->info("Complete backup deleted: " . $backupName);
+                $this->ajaxSuccess("Backup completo eliminado correctamente: " . $backupName);
+            } else {
+                // Individual backup file
+                $this->backupContainer->deleteBackup($backupName);
+                $this->logger->info("Individual backup deleted: " . $backupName);
+                $this->ajaxSuccess("Backup eliminado correctamente: " . $backupName);
+            }
         } catch (Exception $e) {
             $this->logger->error("Failed to delete backup: " . $e->getMessage());
             $this->ajaxError($e->getMessage());
@@ -763,6 +793,88 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             $logs = $this->logger->getRecentLogs(100);
             $this->ajaxSuccess("Logs retrieved", ['logs' => $logs]);
         } catch (Exception $e) {
+            $this->ajaxError($e->getMessage());
+        }
+    }
+
+    /**
+     * Handle database-only restoration from complete backup
+     */
+    private function handleRestoreDatabaseOnly(): void
+    {
+        $backupName = Tools::getValue('backup_name');
+        
+        if (empty($backupName)) {
+            $this->ajaxError("Backup name is required");
+            return;
+        }
+
+        $this->logger->info("Starting database-only restoration", [
+            'backup_name' => $backupName
+        ]);
+
+        try {
+            $metadata = $this->getBackupMetadata();
+            
+            if (!isset($metadata[$backupName])) {
+                throw new Exception("Backup metadata not found for: " . $backupName);
+            }
+
+            $backupInfo = $metadata[$backupName];
+            
+            // Validate that database file exists
+            $this->backupContainer->validateBackupFile($backupInfo['database_file']);
+
+            $this->logger->info("Restoring database from: " . $backupInfo['database_file']);
+            $this->restoreDatabase($backupInfo['database_file']);
+
+            $message = 'Base de datos restaurada correctamente desde: ' . $backupName;
+            $this->logger->info("Database-only restoration completed successfully");
+            $this->ajaxSuccess($message);
+
+        } catch (Exception $e) {
+            $this->logger->error("Database-only restoration failed: " . $e->getMessage());
+            $this->ajaxError($e->getMessage());
+        }
+    }
+
+    /**
+     * Handle files-only restoration from complete backup
+     */
+    private function handleRestoreFilesOnly(): void
+    {
+        $backupName = Tools::getValue('backup_name');
+        
+        if (empty($backupName)) {
+            $this->ajaxError("Backup name is required");
+            return;
+        }
+
+        $this->logger->info("Starting files-only restoration", [
+            'backup_name' => $backupName
+        ]);
+
+        try {
+            $metadata = $this->getBackupMetadata();
+            
+            if (!isset($metadata[$backupName])) {
+                throw new Exception("Backup metadata not found for: " . $backupName);
+            }
+
+            $backupInfo = $metadata[$backupName];
+            
+            // Validate that files exist
+            $this->backupContainer->validateBackupFile($backupInfo['files_file']);
+
+            $this->logger->info("Restoring files from: " . $backupInfo['files_file']);
+            $this->restoreFiles($backupInfo['files_file']);
+
+            $message = 'Archivos restaurados correctamente desde: ' . $backupName;
+            $this->logger->info("Files-only restoration completed successfully");
+            $this->ajaxSuccess($message);
+
+        } catch (Exception $e) {
+            $this->logger->error("Files-only restoration failed: " . $e->getMessage());
             $this->ajaxError($e->getMessage());
         }
     }
@@ -938,6 +1050,17 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         
         $metadata[$backupData['backup_name']] = $backupData;
         
+        file_put_contents($metadataFile, json_encode($metadata, JSON_PRETTY_PRINT));
+    }
+
+    /**
+     * Save complete backup metadata array
+     *
+     * @param array $metadata
+     */
+    private function saveCompleteBackupMetadata(array $metadata): void
+    {
+        $metadataFile = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH) . '/backup_metadata.json';
         file_put_contents($metadataFile, json_encode($metadata, JSON_PRETTY_PRINT));
     }
 

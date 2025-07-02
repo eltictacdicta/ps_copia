@@ -245,7 +245,7 @@ class BackupContainer
         
         $files = scandir($backupDir);
         foreach ($files as $file) {
-            if ($file === '.' || $file === '..') {
+            if ($file === '.' || $file === '..' || $file === 'backup_metadata.json') {
                 continue;
             }
             

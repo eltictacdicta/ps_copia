@@ -196,6 +196,23 @@
     color: white;
 }
 
+.backup-complete .btn-group {
+    margin-top: 5px;
+}
+
+.backup-complete .btn-group .btn {
+    margin-right: 2px;
+}
+
+.backup-complete td {
+    vertical-align: middle;
+    padding: 12px 8px;
+}
+
+.backup-complete .restore-complete-btn {
+    margin-bottom: 8px;
+}
+
 .modal-body ul {
     margin-top: 15px;
 }
@@ -348,12 +365,32 @@ $(document).ready(function() {
             html += '<td>';
             
             if (backup.type === 'complete') {
-                html += '<button class="btn btn-sm btn-restore-complete restore-complete-btn" ';
-                html += 'data-backup-name="' + backup.name + '">';
+                // Restaurar completo (principal)
+                html += '<button class="btn btn-sm btn-primary restore-complete-btn" ';
+                html += 'data-backup-name="' + backup.name + '" style="margin-right: 5px;">';
                 html += '<i class="icon-upload"></i> Restaurar Completo';
+                html += '</button><br><br>';
+                
+                // Botones de restauración parcial (más pequeños)
+                html += '<div class="btn-group" role="group" aria-label="Restauración parcial">';
+                html += '<button class="btn btn-xs btn-info restore-database-only-btn" ';
+                html += 'data-backup-name="' + backup.name + '">';
+                html += '<i class="icon-database"></i> Solo BD';
+                html += '</button>';
+                
+                html += '<button class="btn btn-xs btn-success restore-files-only-btn" ';
+                html += 'data-backup-name="' + backup.name + '">';
+                html += '<i class="icon-folder-open"></i> Solo Archivos';
+                html += '</button>';
+                html += '</div>';
+                
+                // Botón de eliminar
+                html += '<br><button class="btn btn-xs btn-danger delete-backup-btn" ';
+                html += 'data-backup-name="' + backup.name + '" style="margin-top: 8px;">';
+                html += '<i class="icon-trash"></i> Eliminar';
                 html += '</button>';
             } else {
-                // Individual restore buttons (legacy support)
+                // Individual restore buttons (legacy support - no debería aparecer con los nuevos cambios)
                 var buttonClass = backup.type === 'database' ? 'btn-info' : 'btn-success';
                 html += '<button class="btn btn-xs ' + buttonClass + ' restore-backup-btn" ';
                 html += 'data-backup-name="' + backup.name + '" data-backup-type="' + backup.type + '">';
@@ -482,6 +519,136 @@ $(document).ready(function() {
             complete: function() {
                 $btn.prop('disabled', false).html('<i class="icon-upload"></i> Restaurar Completo');
                 selectedBackupForRestore = null;
+            }
+        });
+    });
+
+    // Manejar botones de restaurar solo base de datos
+    $(document).on('click', '.restore-database-only-btn', function() {
+        var $btn = $(this);
+        var backupName = $btn.data('backup-name');
+        
+        if (!confirm('¿Estás seguro de que quieres restaurar SOLO LA BASE DE DATOS desde el backup "' + backupName + '"?\n\n' +
+                    'ADVERTENCIA: Esta acción sobrescribirá la base de datos actual y no se puede deshacer.')) {
+            return;
+        }
+
+        $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Restaurando BD...');
+
+        $.ajax({
+            url: ajaxUrl,
+            type: 'POST',
+            dataType: 'json',
+            timeout: 300000, // 5 minutos de timeout
+            data: {
+                action: 'restore_database_only',
+                backup_name: backupName,
+                ajax: true,
+{/literal}
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+{literal}
+            },
+            success: function(response) {
+                if (response && response.success) {
+                    alert('¡Éxito! ' + response.message);
+                } else {
+                    alert('Error: ' + (response.error || 'Error desconocido'));
+                }
+            },
+            error: function(xhr, status, error) {
+                var errorMessage = 'Error de comunicación con el servidor';
+                if (status === 'timeout') {
+                    errorMessage = 'La operación tardó demasiado tiempo. Verifica si la restauración se completó.';
+                }
+                alert('Error: ' + errorMessage);
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html('<i class="icon-database"></i> Solo BD');
+            }
+        });
+    });
+
+    // Manejar botones de restaurar solo archivos
+    $(document).on('click', '.restore-files-only-btn', function() {
+        var $btn = $(this);
+        var backupName = $btn.data('backup-name');
+        
+        if (!confirm('¿Estás seguro de que quieres restaurar SOLO LOS ARCHIVOS desde el backup "' + backupName + '"?\n\n' +
+                    'ADVERTENCIA: Esta acción sobrescribirá los archivos actuales y no se puede deshacer.')) {
+            return;
+        }
+
+        $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Restaurando...');
+
+        $.ajax({
+            url: ajaxUrl,
+            type: 'POST',
+            dataType: 'json',
+            timeout: 600000, // 10 minutos de timeout para archivos
+            data: {
+                action: 'restore_files_only',
+                backup_name: backupName,
+                ajax: true,
+{/literal}
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+{literal}
+            },
+            success: function(response) {
+                if (response && response.success) {
+                    alert('¡Éxito! ' + response.message);
+                } else {
+                    alert('Error: ' + (response.error || 'Error desconocido'));
+                }
+            },
+            error: function(xhr, status, error) {
+                var errorMessage = 'Error de comunicación con el servidor';
+                if (status === 'timeout') {
+                    errorMessage = 'La operación tardó demasiado tiempo. Verifica si la restauración se completó.';
+                }
+                alert('Error: ' + errorMessage);
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html('<i class="icon-folder-open"></i> Solo Archivos');
+            }
+        });
+    });
+
+    // Manejar botones de eliminar backup
+    $(document).on('click', '.delete-backup-btn', function() {
+        var $btn = $(this);
+        var backupName = $btn.data('backup-name');
+        
+        if (!confirm('¿Estás seguro de que quieres ELIMINAR PERMANENTEMENTE el backup "' + backupName + '"?\n\n' +
+                    'ADVERTENCIA: Esta acción no se puede deshacer.')) {
+            return;
+        }
+
+        $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Eliminando...');
+
+        $.ajax({
+            url: ajaxUrl,
+            type: 'POST',
+            dataType: 'json',
+            data: {
+                action: 'delete_backup',
+                backup_name: backupName,
+                ajax: true,
+{/literal}
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+{literal}
+            },
+            success: function(response) {
+                if (response && response.success) {
+                    alert('¡Éxito! ' + response.message);
+                    loadBackupsList(); // Recargar la lista
+                } else {
+                    alert('Error: ' + (response.error || 'Error desconocido'));
+                    $btn.prop('disabled', false).html('<i class="icon-trash"></i> Eliminar');
+                }
+            },
+            error: function(xhr, status, error) {
+                alert('Error de comunicación con el servidor');
+                $btn.prop('disabled', false).html('<i class="icon-trash"></i> Eliminar');
             }
         });
     });
