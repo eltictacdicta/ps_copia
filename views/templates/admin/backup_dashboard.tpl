@@ -62,10 +62,10 @@
                         </h3>
                     </div>
                     <div class="panel-body text-center">
-                        <p>Restaura tu tienda completamente desde una copia de seguridad previamente creada.</p>
-                        <button id="restoreBackupBtn" class="btn btn-lg btn-warning">
+                        <p>Sube un archivo ZIP de backup exportado para poder restaurarlo.</p>
+                        <button id="uploadBackupBtn" class="btn btn-lg btn-warning">
                             <i class="icon-upload"></i>
-                            Seleccionar Backup
+                            Subir Backup
                         </button>
                     </div>
                 </div>
@@ -141,6 +141,47 @@
                 <button type="button" class="btn btn-default" data-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-warning" id="confirmRestoreBtn">
                     <i class="icon-upload"></i> Sí, Restaurar Ahora
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para subir backup -->
+<div class="modal fade" id="uploadBackupModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">
+                    <i class="icon-upload text-warning"></i>
+                    Subir Backup
+                </h4>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <strong><i class="icon-info-circle"></i> Información:</strong> 
+                    Selecciona un archivo ZIP exportado previamente desde este módulo para poder restaurarlo.
+                </div>
+                <form id="uploadBackupForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="backup_file">Archivo de Backup (ZIP):</label>
+                        <input type="file" class="form-control" id="backup_file" name="backup_file" accept=".zip" required>
+                        <small class="help-block">Solo archivos ZIP exportados desde este módulo son válidos.</small>
+                    </div>
+                </form>
+                <div id="upload-progress" style="display: none;">
+                    <div class="progress">
+                        <div class="progress-bar progress-bar-striped active" role="progressbar" style="width: 0%;">
+                            <span>Subiendo...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-warning" id="confirmUploadBtn">
+                    <i class="icon-upload"></i> Subir Backup
                 </button>
             </div>
         </div>
@@ -384,11 +425,17 @@ $(document).ready(function() {
                 html += '</button>';
                 html += '</div>';
                 
-                // Botón de eliminar
-                html += '<br><button class="btn btn-xs btn-danger delete-backup-btn" ';
-                html += 'data-backup-name="' + backup.name + '" style="margin-top: 8px;">';
+                // Botón de exportar y eliminar
+                html += '<br><div class="btn-group" style="margin-top: 8px;">';
+                html += '<button class="btn btn-xs btn-warning export-backup-btn" ';
+                html += 'data-backup-name="' + backup.name + '">';
+                html += '<i class="icon-download"></i> Exportar';
+                html += '</button>';
+                html += '<button class="btn btn-xs btn-danger delete-backup-btn" ';
+                html += 'data-backup-name="' + backup.name + '">';
                 html += '<i class="icon-trash"></i> Eliminar';
                 html += '</button>';
+                html += '</div>';
             } else {
                 // Individual restore buttons (legacy support - no debería aparecer con los nuevos cambios)
                 var buttonClass = backup.type === 'database' ? 'btn-info' : 'btn-success';
@@ -414,18 +461,9 @@ $(document).ready(function() {
     // Cargar lista al iniciar
     loadBackupsList();
 
-    // Manejar botón principal de restaurar
-    $('#restoreBackupBtn').on('click', function() {
-        // Mostrar y resaltar la sección de backups
-        $('html, body').animate({
-            scrollTop: $("#backups-list").offset().top - 100
-        }, 500);
-        
-        // Resaltar la sección de backups
-        $('#backups-list').closest('.panel').addClass('panel-warning').removeClass('panel-default');
-        setTimeout(function() {
-            $('#backups-list').closest('.panel').removeClass('panel-warning').addClass('panel-default');
-        }, 3000);
+    // Manejar botón de subir backup
+    $('#uploadBackupBtn').on('click', function() {
+        $('#uploadBackupModal').modal('show');
     });
 
     // Manejar botones de restaurar completo
@@ -732,6 +770,162 @@ $(document).ready(function() {
                 $btn.prop('disabled', false).html('<i class="icon-upload"></i> Restaurar');
             }
         });
+    });
+
+    // Manejar botones de exportar backup
+    $(document).on('click', '.export-backup-btn', function() {
+        var $btn = $(this);
+        var backupName = $btn.data('backup-name');
+        
+        $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Exportando...');
+
+        $.ajax({
+            url: ajaxUrl,
+            type: 'POST',
+            dataType: 'json',
+            timeout: 300000, // 5 minutos de timeout
+            data: {
+                action: 'export_backup',
+                backup_name: backupName,
+                ajax: true,
+{/literal}
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+{literal}
+            },
+            success: function(response) {
+                if (response && response.success) {
+                    // Crear enlace de descarga automática
+                    var link = document.createElement('a');
+                    link.href = response.data.download_url;
+                    link.download = response.data.filename;
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    alert('¡Éxito! Se ha iniciado la descarga del backup exportado (' + response.data.size_formatted + ')');
+                } else {
+                    alert('Error: ' + (response.error || 'Error desconocido'));
+                }
+            },
+            error: function(xhr, status, error) {
+                var errorMessage = 'Error de comunicación con el servidor';
+                if (status === 'timeout') {
+                    errorMessage = 'La operación tardó demasiado tiempo. Intenta de nuevo.';
+                }
+                alert('Error: ' + errorMessage);
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html('<i class="icon-download"></i> Exportar');
+            }
+        });
+    });
+
+    // Manejar confirmación de subir backup
+    $('#confirmUploadBtn').on('click', function() {
+        var fileInput = $('#backup_file')[0];
+        
+        if (!fileInput.files || !fileInput.files[0]) {
+            alert('Por favor selecciona un archivo ZIP de backup');
+            return;
+        }
+        
+        var file = fileInput.files[0];
+        
+        // Verificar extensión
+        if (!file.name.toLowerCase().endsWith('.zip')) {
+            alert('El archivo debe ser un ZIP válido');
+            return;
+        }
+        
+        var $btn = $(this);
+        $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Subiendo...');
+        $('#upload-progress').show();
+        
+        var formData = new FormData();
+        formData.append('backup_file', file);
+        formData.append('action', 'import_backup');
+        formData.append('ajax', 'true');
+{/literal}
+        formData.append('token', "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}");
+{literal}
+
+        $.ajax({
+            url: ajaxUrl,
+            type: 'POST',
+            dataType: 'json',
+            data: formData,
+            processData: false,
+            contentType: false,
+            timeout: 600000, // 10 minutos de timeout
+            xhr: function() {
+                var xhr = new window.XMLHttpRequest();
+                xhr.upload.addEventListener("progress", function(evt) {
+                    if (evt.lengthComputable) {
+                        var percentComplete = evt.loaded / evt.total * 100;
+                        $('#upload-progress .progress-bar').css('width', percentComplete + '%');
+                        $('#upload-progress .progress-bar span').text('Subiendo... ' + Math.round(percentComplete) + '%');
+                    }
+                }, false);
+                return xhr;
+            },
+            success: function(response) {
+                if (response && response.success) {
+                    $('#uploadBackupModal').modal('hide');
+                    
+                    // Mostrar mensaje de éxito
+                    var alertHtml = '<div class="alert alert-success alert-dismissible" role="alert">';
+                    alertHtml += '<button type="button" class="close" data-dismiss="alert" aria-label="Close">';
+                    alertHtml += '<span aria-hidden="true">&times;</span></button>';
+                    alertHtml += '<i class="icon-check"></i> <strong>¡Éxito!</strong> ' + response.message;
+                    alertHtml += '</div>';
+                    
+                    $('#ps-copia-content').prepend(alertHtml);
+                    
+                    // Recargar lista de backups
+                    loadBackupsList();
+                    
+                    // Limpiar formulario
+                    $('#uploadBackupForm')[0].reset();
+                    
+                    // Scroll al mensaje
+                    $('html, body').animate({
+                        scrollTop: $('#ps-copia-content').offset().top - 50
+                    }, 500);
+                    
+                } else {
+                    alert('Error: ' + (response.error || 'Error desconocido'));
+                }
+            },
+            error: function(xhr, status, error) {
+                var errorMessage = 'Error de comunicación con el servidor';
+                if (status === 'timeout') {
+                    errorMessage = 'La operación tardó demasiado tiempo. El archivo puede ser demasiado grande.';
+                } else if (xhr.responseText) {
+                    try {
+                        var response = JSON.parse(xhr.responseText);
+                        errorMessage = response.error || errorMessage;
+                    } catch (e) {
+                        errorMessage += ': ' + xhr.responseText.substring(0, 200);
+                    }
+                }
+                alert('Error: ' + errorMessage);
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html('<i class="icon-upload"></i> Subir Backup');
+                $('#upload-progress').hide();
+                $('#upload-progress .progress-bar').css('width', '0%');
+                $('#upload-progress .progress-bar span').text('Subiendo...');
+            }
+        });
+    });
+
+    // Limpiar formulario al cerrar modal
+    $('#uploadBackupModal').on('hidden.bs.modal', function() {
+        $('#uploadBackupForm')[0].reset();
+        $('#upload-progress').hide();
+        $('#upload-progress .progress-bar').css('width', '0%');
+        $('#confirmUploadBtn').prop('disabled', false).html('<i class="icon-upload"></i> Subir Backup');
     });
 });
 {/literal}
