@@ -425,6 +425,7 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             _PS_ROOT_DIR_ . '/.git',
             _PS_ROOT_DIR_ . '/.svn',
             _PS_ROOT_DIR_ . '/.hg',
+            _PS_ROOT_DIR_ . '/.ddev',
         ];
 
         return array_filter(array_map('realpath', $excludePaths));
@@ -457,6 +458,11 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             return true;
         }
         if (preg_match('#(^|/)\.hg(/|$)#', $relativePath)) {
+            return true;
+        }
+        
+        // Exclude DDEV development environment
+        if (preg_match('#(^|/)\.ddev(/|$)#', $relativePath)) {
             return true;
         }
 
@@ -1005,9 +1011,16 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             RecursiveIteratorIterator::SELF_FIRST
         );
 
+        $excludePaths = $this->getExcludePaths();
+
         foreach ($iterator as $item) {
             $relativePath = substr($item->getPathname(), strlen($source) + 1);
             $destinationPath = $destination . DIRECTORY_SEPARATOR . $relativePath;
+
+            // Skip files/directories that should be excluded during restoration
+            if ($this->shouldExcludeFile($destinationPath, $excludePaths)) {
+                continue;
+            }
 
             if ($item->isDir()) {
                 if (!is_dir($destinationPath)) {
