@@ -63,10 +63,19 @@
                     </div>
                     <div class="panel-body text-center">
                         <p>Sube un archivo ZIP de backup exportado para poder restaurarlo.</p>
-                        <button id="uploadBackupBtn" class="btn btn-lg btn-warning">
-                            <i class="icon-upload"></i>
-                            Subir Backup
-                        </button>
+                        <div class="btn-group-vertical" style="width: 100%;">
+                            <button id="uploadBackupBtn" class="btn btn-lg btn-warning" style="margin-bottom: 10px;">
+                                <i class="icon-upload"></i>
+                                Subir Backup Simple
+                            </button>
+                            <button id="uploadWithMigrationDirectBtn" class="btn btn-lg btn-primary">
+                                <i class="icon-magic"></i>
+                                Subir Backup con Migración
+                            </button>
+                        </div>
+                        <small class="help-block" style="margin-top: 10px;">
+                            <strong>Migración:</strong> Permite cambiar URLs, carpetas admin y configuraciones durante la importación
+                        </small>
                     </div>
                 </div>
             </div>
@@ -205,8 +214,17 @@
             <div class="modal-body">
                 <div class="alert alert-warning">
                     <strong><i class="icon-warning-sign"></i> IMPORTANTE:</strong> 
-                    Esta función permite importar backups desde otros PrestaShop adaptando URLs, configuraciones de base de datos y carpetas de admin. 
+                    Esta función permite importar backups desde otros PrestaShop adaptando <strong>URLs</strong>, configuraciones de base de datos y carpetas de admin. 
                     <strong>Se sobrescribirán TODOS los datos actuales.</strong>
+                </div>
+                
+                <div class="alert alert-info">
+                    <strong><i class="icon-info-circle"></i> Opciones de Migración:</strong>
+                    <ul style="margin-bottom: 0;">
+                        <li><strong>Migrar URLs:</strong> Cambia el dominio del backup al dominio actual</li>
+                        <li><strong>Migrar Carpeta Admin:</strong> Actualiza las rutas de la carpeta de administración</li>
+                        <li><strong>Preservar Config DB:</strong> Mantiene la configuración de conexión actual</li>
+                    </ul>
                 </div>
                 
                 <form id="uploadMigrationForm" enctype="multipart/form-data">
@@ -218,27 +236,33 @@
                     </div>
 
                     <!-- Configuración de URLs -->
-                    <div class="panel panel-default">
+                    <div class="panel panel-primary">
                         <div class="panel-heading">
                             <h4 class="panel-title">
-                                <input type="checkbox" id="migrate_urls" name="migrate_urls" value="1">
-                                <label for="migrate_urls">Migrar URLs</label>
+                                <input type="checkbox" id="migrate_urls" name="migrate_urls" value="1" style="margin-right: 8px;">
+                                <label for="migrate_urls" style="font-weight: bold;">
+                                    <i class="icon-globe"></i> Migrar URLs (Cambiar Dominio)
+                                </label>
                             </h4>
                         </div>
                         <div class="panel-body" id="urls_config" style="display: none;">
                             <div class="row">
                                 <div class="col-md-6">
                                     <div class="form-group">
-                                        <label for="old_url">URL Antigua:</label>
-                                        <input type="url" class="form-control" id="old_url" name="old_url" placeholder="https://antiguo-dominio.com">
-                                        <small class="help-block">URL del PrestaShop de origen</small>
+                                        <label for="old_url"><strong>URL del Backup (Origen):</strong></label>
+                                        <input type="url" class="form-control" id="old_url" name="old_url" placeholder="https://tienda-origen.com">
+                                        <small class="help-block">
+                                            <i class="icon-info-circle"></i> URL completa de donde proviene el backup
+                                        </small>
                                     </div>
                                 </div>
                                 <div class="col-md-6">
                                     <div class="form-group">
-                                        <label for="new_url">URL Nueva:</label>
-                                        <input type="url" class="form-control" id="new_url" name="new_url" placeholder="https://nuevo-dominio.com">
-                                        <small class="help-block">URL del PrestaShop de destino</small>
+                                        <label for="new_url"><strong>URL Actual (Destino):</strong></label>
+                                        <input type="url" class="form-control" id="new_url" name="new_url" placeholder="https://tienda-actual.com">
+                                        <small class="help-block">
+                                            <i class="icon-info-circle"></i> URL donde se instalará el backup
+                                        </small>
                                     </div>
                                 </div>
                             </div>
@@ -1057,6 +1081,11 @@ $(document).ready(function() {
         $('#uploadMigrationModal').modal('show');
     });
 
+    // Manejar botón directo "Subir Backup con Migración"
+    $('#uploadWithMigrationDirectBtn').on('click', function() {
+        $('#uploadMigrationModal').modal('show');
+    });
+
     // Manejar checkboxes de configuración de migración
     $('#migrate_urls').on('change', function() {
         if ($(this).is(':checked')) {
@@ -1079,7 +1108,15 @@ $(document).ready(function() {
     });
 
     // Auto-completar la nueva URL con la URL actual
-    $('#new_url').attr('placeholder', window.location.protocol + '//' + window.location.host);
+    var currentUrl = window.location.protocol + '//' + window.location.host;
+    $('#new_url').attr('placeholder', currentUrl);
+    
+    // Al hacer foco en el campo de nueva URL, auto-rellenar con la URL actual si está vacío
+    $('#new_url').on('focus', function() {
+        if ($(this).val() === '') {
+            $(this).val(currentUrl);
+        }
+    });
 
     // Auto-completar el nuevo directorio admin con el actual
 {/literal}
@@ -1106,9 +1143,29 @@ $(document).ready(function() {
         // Validar configuración de migración
         if ($('#migrate_urls').is(':checked')) {
             if (!$('#old_url').val() || !$('#new_url').val()) {
-                alert('Por favor completa las URLs antigua y nueva');
+                alert('Por favor completa las URLs de origen y destino para la migración');
                 return;
             }
+            
+            // Validar formato de URLs
+            var oldUrl = $('#old_url').val();
+            var newUrl = $('#new_url').val();
+            
+            if (!oldUrl.match(/^https?:\/\/.+/)) {
+                alert('La URL de origen debe comenzar con http:// o https://');
+                return;
+            }
+            
+            if (!newUrl.match(/^https?:\/\/.+/)) {
+                alert('La URL de destino debe comenzar con http:// o https://');
+                return;
+            }
+            
+            console.log('Migración de URLs configurada:', {
+                migrate_urls: true,
+                old_url: oldUrl,
+                new_url: newUrl
+            });
         }
 
         if ($('#migrate_admin_dir').is(':checked')) {

@@ -82,8 +82,14 @@ class DatabaseMigrator
             // Apply URL migrations
             if (isset($migrationConfig['migrate_urls']) && $migrationConfig['migrate_urls'] && 
                 !empty($migrationConfig['old_url']) && !empty($migrationConfig['new_url'])) {
+                $this->logger->info("URL migration enabled - executing complete URL migration");
                 $this->migrateUrls($migrationConfig['old_url'], $migrationConfig['new_url']);
             } else {
+                $this->logger->info("URL migration not enabled or incomplete config - executing fallback shop_url update", [
+                    'migrate_urls_flag' => isset($migrationConfig['migrate_urls']) ? $migrationConfig['migrate_urls'] : 'not_set',
+                    'old_url_present' => !empty($migrationConfig['old_url']),
+                    'new_url_present' => !empty($migrationConfig['new_url'])
+                ]);
                 // Always update shop_url table with current domain even if URLs are not explicitly configured
                 $this->updateShopUrlTable();
             }
