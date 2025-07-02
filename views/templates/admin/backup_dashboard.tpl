@@ -183,6 +183,129 @@
                 <button type="button" class="btn btn-warning" id="confirmUploadBtn">
                     <i class="icon-upload"></i> Subir Backup
                 </button>
+                <button type="button" class="btn btn-primary" id="uploadWithMigrationBtn">
+                    <i class="icon-magic"></i> Subir con Migración
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para subir backup con migración -->
+<div class="modal fade" id="uploadMigrationModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">
+                    <i class="icon-magic text-primary"></i>
+                    Importar Backup desde Otro PrestaShop
+                </h4>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <strong><i class="icon-warning-sign"></i> IMPORTANTE:</strong> 
+                    Esta función permite importar backups desde otros PrestaShop adaptando URLs, configuraciones de base de datos y carpetas de admin. 
+                    <strong>Se sobrescribirán TODOS los datos actuales.</strong>
+                </div>
+                
+                <form id="uploadMigrationForm" enctype="multipart/form-data">
+                    <!-- Archivo de backup -->
+                    <div class="form-group">
+                        <label for="migration_backup_file">Archivo de Backup (ZIP):</label>
+                        <input type="file" class="form-control" id="migration_backup_file" name="backup_file" accept=".zip" required>
+                        <small class="help-block">Archivo ZIP de backup completo desde otro PrestaShop.</small>
+                    </div>
+
+                    <!-- Configuración de URLs -->
+                    <div class="panel panel-default">
+                        <div class="panel-heading">
+                            <h4 class="panel-title">
+                                <input type="checkbox" id="migrate_urls" name="migrate_urls" value="1">
+                                <label for="migrate_urls">Migrar URLs</label>
+                            </h4>
+                        </div>
+                        <div class="panel-body" id="urls_config" style="display: none;">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="old_url">URL Antigua:</label>
+                                        <input type="url" class="form-control" id="old_url" name="old_url" placeholder="https://antiguo-dominio.com">
+                                        <small class="help-block">URL del PrestaShop de origen</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="new_url">URL Nueva:</label>
+                                        <input type="url" class="form-control" id="new_url" name="new_url" placeholder="https://nuevo-dominio.com">
+                                        <small class="help-block">URL del PrestaShop de destino</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Configuración de Admin Directory -->
+                    <div class="panel panel-default">
+                        <div class="panel-heading">
+                            <h4 class="panel-title">
+                                <input type="checkbox" id="migrate_admin_dir" name="migrate_admin_dir" value="1">
+                                <label for="migrate_admin_dir">Migrar Carpeta de Admin</label>
+                            </h4>
+                        </div>
+                        <div class="panel-body" id="admin_config" style="display: none;">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="old_admin_dir">Carpeta Admin Antigua:</label>
+                                        <input type="text" class="form-control" id="old_admin_dir" name="old_admin_dir" placeholder="admin123">
+                                        <small class="help-block">Nombre de la carpeta admin del backup</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="new_admin_dir">Carpeta Admin Nueva:</label>
+                                        <input type="text" class="form-control" id="new_admin_dir" name="new_admin_dir" placeholder="{$admin_dir|escape:'html':'UTF-8'}">
+                                        <small class="help-block">Nombre de la carpeta admin actual</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Configuración de Base de Datos -->
+                    <div class="panel panel-default">
+                        <div class="panel-heading">
+                            <h4 class="panel-title">
+                                <input type="checkbox" id="preserve_db_config" name="preserve_db_config" value="1" checked>
+                                <label for="preserve_db_config">Preservar Configuración de Base de Datos Actual</label>
+                            </h4>
+                        </div>
+                        <div class="panel-body">
+                            <div class="alert alert-info">
+                                <small>
+                                    <i class="icon-info-circle"></i> 
+                                    Si está marcado, se mantendrá la configuración de conexión a la base de datos actual. 
+                                    Recomendado para migraciones entre servidores diferentes.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+
+                <div id="migration-progress" style="display: none;">
+                    <div class="progress">
+                        <div class="progress-bar progress-bar-striped active" role="progressbar" style="width: 0%;">
+                            <span>Procesando migración...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="confirmMigrationBtn">
+                    <i class="icon-magic"></i> Importar con Migración
+                </button>
             </div>
         </div>
     </div>
@@ -926,6 +1049,177 @@ $(document).ready(function() {
         $('#upload-progress').hide();
         $('#upload-progress .progress-bar').css('width', '0%');
         $('#confirmUploadBtn').prop('disabled', false).html('<i class="icon-upload"></i> Subir Backup');
+    });
+
+    // Manejar botón "Subir con Migración"
+    $('#uploadWithMigrationBtn').on('click', function() {
+        $('#uploadBackupModal').modal('hide');
+        $('#uploadMigrationModal').modal('show');
+    });
+
+    // Manejar checkboxes de configuración de migración
+    $('#migrate_urls').on('change', function() {
+        if ($(this).is(':checked')) {
+            $('#urls_config').show();
+            $('#old_url, #new_url').prop('required', true);
+        } else {
+            $('#urls_config').hide();
+            $('#old_url, #new_url').prop('required', false);
+        }
+    });
+
+    $('#migrate_admin_dir').on('change', function() {
+        if ($(this).is(':checked')) {
+            $('#admin_config').show();
+            $('#old_admin_dir, #new_admin_dir').prop('required', true);
+        } else {
+            $('#admin_config').hide();
+            $('#old_admin_dir, #new_admin_dir').prop('required', false);
+        }
+    });
+
+    // Auto-completar la nueva URL con la URL actual
+    $('#new_url').attr('placeholder', window.location.protocol + '//' + window.location.host);
+
+    // Auto-completar el nuevo directorio admin con el actual
+{/literal}
+    $('#new_admin_dir').val('{$admin_dir|escape:"javascript":"UTF-8"}');
+{literal}
+
+    // Manejar confirmación de importación con migración
+    $('#confirmMigrationBtn').on('click', function() {
+        var fileInput = $('#migration_backup_file')[0];
+        
+        if (!fileInput.files || !fileInput.files[0]) {
+            alert('Por favor selecciona un archivo ZIP de backup');
+            return;
+        }
+        
+        var file = fileInput.files[0];
+        
+        // Verificar extensión
+        if (!file.name.toLowerCase().endsWith('.zip')) {
+            alert('El archivo debe ser un ZIP válido');
+            return;
+        }
+
+        // Validar configuración de migración
+        if ($('#migrate_urls').is(':checked')) {
+            if (!$('#old_url').val() || !$('#new_url').val()) {
+                alert('Por favor completa las URLs antigua y nueva');
+                return;
+            }
+        }
+
+        if ($('#migrate_admin_dir').is(':checked')) {
+            if (!$('#old_admin_dir').val() || !$('#new_admin_dir').val()) {
+                alert('Por favor completa los nombres de carpeta admin antigua y nueva');
+                return;
+            }
+        }
+        
+        var $btn = $(this);
+        $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Migrando...');
+        $('#migration-progress').show();
+        
+        var formData = new FormData($('#uploadMigrationForm')[0]);
+        formData.append('action', 'import_backup_with_migration');
+        formData.append('ajax', 'true');
+{/literal}
+        formData.append('token', "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}");
+{literal}
+
+        $.ajax({
+            url: ajaxUrl,
+            type: 'POST',
+            dataType: 'json',
+            data: formData,
+            processData: false,
+            contentType: false,
+            timeout: 1200000, // 20 minutos de timeout para migraciones
+            xhr: function() {
+                var xhr = new window.XMLHttpRequest();
+                xhr.upload.addEventListener("progress", function(evt) {
+                    if (evt.lengthComputable) {
+                        var percentComplete = evt.loaded / evt.total * 100;
+                        $('#migration-progress .progress-bar').css('width', percentComplete + '%');
+                        $('#migration-progress .progress-bar span').text('Subiendo... ' + Math.round(percentComplete) + '%');
+                    }
+                }, false);
+                return xhr;
+            },
+            success: function(response) {
+                if (response && response.success) {
+                    $('#uploadMigrationModal').modal('hide');
+                    
+                    // Mostrar mensaje de éxito
+                    var alertHtml = '<div class="alert alert-success alert-dismissible" role="alert">';
+                    alertHtml += '<button type="button" class="close" data-dismiss="alert" aria-label="Close">';
+                    alertHtml += '<span aria-hidden="true">&times;</span></button>';
+                    alertHtml += '<i class="icon-check"></i> <strong>¡Éxito!</strong> ' + response.message;
+                    alertHtml += '</div>';
+                    
+                    $('#ps-copia-content').prepend(alertHtml);
+                    
+                    // Recargar lista de backups
+                    loadBackupsList();
+                    
+                    // Limpiar formulario
+                    $('#uploadMigrationForm')[0].reset();
+                    
+                    // Limpiar las casillas de verificación
+                    $('#migrate_urls, #migrate_admin_dir').prop('checked', false);
+                    $('#urls_config, #admin_config').hide();
+                    $('#preserve_db_config').prop('checked', true);
+                    
+                    // Scroll al mensaje
+                    $('html, body').animate({
+                        scrollTop: $('#ps-copia-content').offset().top - 50
+                    }, 500);
+                    
+                    // Mostrar advertencia de recarga
+                    setTimeout(function() {
+                        if (confirm('¡La migración se completó exitosamente! Se recomienda recargar la página para asegurar que todos los cambios se reflejen correctamente. ¿Deseas recargar ahora?')) {
+                            window.location.reload();
+                        }
+                    }, 3000);
+                    
+                } else {
+                    alert('Error: ' + (response.error || 'Error desconocido durante la migración'));
+                }
+            },
+            error: function(xhr, status, error) {
+                var errorMessage = 'Error de comunicación con el servidor';
+                if (status === 'timeout') {
+                    errorMessage = 'La operación tardó demasiado tiempo. Las migraciones pueden tardar varios minutos.';
+                } else if (xhr.responseText) {
+                    try {
+                        var response = JSON.parse(xhr.responseText);
+                        errorMessage = response.error || errorMessage;
+                    } catch (e) {
+                        errorMessage += ': ' + xhr.responseText.substring(0, 200);
+                    }
+                }
+                alert('Error: ' + errorMessage);
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html('<i class="icon-magic"></i> Importar con Migración');
+                $('#migration-progress').hide();
+                $('#migration-progress .progress-bar').css('width', '0%');
+                $('#migration-progress .progress-bar span').text('Procesando migración...');
+            }
+        });
+    });
+
+    // Limpiar formulario al cerrar modal de migración
+    $('#uploadMigrationModal').on('hidden.bs.modal', function() {
+        $('#uploadMigrationForm')[0].reset();
+        $('#migration-progress').hide();
+        $('#migration-progress .progress-bar').css('width', '0%');
+        $('#confirmMigrationBtn').prop('disabled', false).html('<i class="icon-magic"></i> Importar con Migración');
+        $('#migrate_urls, #migrate_admin_dir').prop('checked', false);
+        $('#urls_config, #admin_config').hide();
+        $('#preserve_db_config').prop('checked', true);
     });
 });
 {/literal}

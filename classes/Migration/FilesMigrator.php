@@ -1,0 +1,597 @@
+<?php
+/**
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License version 3.0
+ * that is bundled with this package in the file LICENSE.md.
+ * It is also available through the world-wide-web at this URL:
+ * https://opensource.org/licenses/AFL-3.0
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@prestashop.com so we can send you a copy immediately.
+ *
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
+ * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ */
+
+namespace PrestaShop\Module\PsCopia\Migration;
+
+use PrestaShop\Module\PsCopia\BackupContainer;
+use PrestaShop\Module\PsCopia\Logger\BackupLogger;
+use Exception;
+use ZipArchive;
+use RecursiveIteratorIterator;
+use RecursiveDirectoryIterator;
+
+/**
+ * Class responsible for migrating files between different PrestaShop installations
+ */
+class FilesMigrator
+{
+    /** @var BackupContainer */
+    private $backupContainer;
+
+    /** @var BackupLogger */
+    private $logger;
+
+    public function __construct(BackupContainer $backupContainer, BackupLogger $logger)
+    {
+        $this->backupContainer = $backupContainer;
+        $this->logger = $logger;
+    }
+
+    /**
+     * Migrate files from external PrestaShop
+     *
+     * @param string $backupFile Path to files backup file
+     * @param array $migrationConfig Migration configuration
+     * @throws Exception
+     */
+    public function migrateFiles(string $backupFile, array $migrationConfig): void
+    {
+        $this->logger->info("Starting files migration", $migrationConfig);
+
+        if (!file_exists($backupFile)) {
+            throw new Exception("Files backup does not exist: " . $backupFile);
+        }
+
+        if (!extension_loaded('zip')) {
+            throw new Exception('ZIP PHP extension is not installed');
+        }
+
+        // Extract files to temporary directory
+        $tempDir = $this->extractToTemporary($backupFile);
+
+        try {
+            // Apply migrations before copying to final location
+            $this->applyFileMigrations($tempDir, $migrationConfig);
+
+            // Copy files to final location
+            $this->copyMigratedFiles($tempDir, _PS_ROOT_DIR_);
+
+            $this->logger->info("Files migration completed successfully");
+
+        } finally {
+            // Clean up temporary directory
+            $this->removeDirectoryRecursively($tempDir);
+        }
+    }
+
+    /**
+     * Extract backup to temporary directory
+     *
+     * @param string $backupFile
+     * @return string Temporary directory path
+     * @throws Exception
+     */
+    private function extractToTemporary(string $backupFile): string
+    {
+        $zip = new ZipArchive();
+        $result = $zip->open($backupFile);
+        
+        if ($result !== TRUE) {
+            throw new Exception('Cannot open ZIP file: ' . $this->getZipError($result));
+        }
+
+        $tempDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ps_copia_files_migrate_' . time();
+        if (!mkdir($tempDir, 0755, true)) {
+            throw new Exception('Cannot create temporary directory: ' . $tempDir);
+        }
+
+        if (!$zip->extractTo($tempDir)) {
+            $zip->close();
+            throw new Exception('Failed to extract ZIP file');
+        }
+        
+        $zip->close();
+        $this->logger->info("Files extracted to temporary directory: " . $tempDir);
+
+        return $tempDir;
+    }
+
+    /**
+     * Apply file migrations
+     *
+     * @param string $tempDir
+     * @param array $migrationConfig
+     * @throws Exception
+     */
+    private function applyFileMigrations(string $tempDir, array $migrationConfig): void
+    {
+        // Migrate admin directory if needed
+        if (!empty($migrationConfig['old_admin_dir']) && !empty($migrationConfig['new_admin_dir'])) {
+            $this->migrateAdminDirectory($tempDir, $migrationConfig['old_admin_dir'], $migrationConfig['new_admin_dir']);
+        }
+
+        // Update configuration files
+        $this->updateConfigurationFiles($tempDir, $migrationConfig);
+
+        // Handle custom file mappings
+        if (!empty($migrationConfig['file_mappings'])) {
+            $this->applyFileMappings($tempDir, $migrationConfig['file_mappings']);
+        }
+    }
+
+    /**
+     * Migrate admin directory
+     *
+     * @param string $baseDir
+     * @param string $oldAdminDir
+     * @param string $newAdminDir
+     * @throws Exception
+     */
+    private function migrateAdminDirectory(string $baseDir, string $oldAdminDir, string $newAdminDir): void
+    {
+        $this->logger->info("Migrating admin directory from {$oldAdminDir} to {$newAdminDir}");
+
+        $oldAdminPath = $baseDir . DIRECTORY_SEPARATOR . trim($oldAdminDir, '/');
+        $newAdminPath = $baseDir . DIRECTORY_SEPARATOR . trim($newAdminDir, '/');
+
+        if (!is_dir($oldAdminPath)) {
+            $this->logger->warning("Old admin directory not found: {$oldAdminPath}");
+            return;
+        }
+
+        // If new admin directory already exists, remove it
+        if (is_dir($newAdminPath)) {
+            $this->removeDirectoryRecursively($newAdminPath);
+        }
+
+        // Rename the directory
+        if (!rename($oldAdminPath, $newAdminPath)) {
+            throw new Exception("Failed to rename admin directory from {$oldAdminDir} to {$newAdminDir}");
+        }
+
+        $this->logger->info("Admin directory successfully migrated");
+    }
+
+    /**
+     * Update configuration files
+     *
+     * @param string $baseDir
+     * @param array $migrationConfig
+     */
+    private function updateConfigurationFiles(string $baseDir, array $migrationConfig): void
+    {
+        $this->logger->info("Updating configuration files");
+
+        // Update settings.inc.php or parameters.php depending on PS version
+        $this->updateMainConfigFile($baseDir, $migrationConfig);
+
+        // Update .htaccess if needed
+        $this->updateHtaccessFile($baseDir, $migrationConfig);
+
+        // Update robots.txt if needed
+        $this->updateRobotsFile($baseDir, $migrationConfig);
+    }
+
+    /**
+     * Update main configuration file
+     *
+     * @param string $baseDir
+     * @param array $migrationConfig
+     */
+    private function updateMainConfigFile(string $baseDir, array $migrationConfig): void
+    {
+        // Try PS 1.7+ parameters.php first
+        $parametersFile = $baseDir . '/app/config/parameters.php';
+        $settingsFile = $baseDir . '/config/settings.inc.php';
+
+        if (file_exists($parametersFile)) {
+            $this->updateParametersFile($parametersFile, $migrationConfig);
+        } elseif (file_exists($settingsFile)) {
+            $this->updateSettingsFile($settingsFile, $migrationConfig);
+        } else {
+            $this->logger->warning("No configuration file found to update");
+        }
+    }
+
+    /**
+     * Update parameters.php file (PS 1.7+)
+     *
+     * @param string $filePath
+     * @param array $migrationConfig
+     */
+    private function updateParametersFile(string $filePath, array $migrationConfig): void
+    {
+        if (empty($migrationConfig['preserve_db_config']) || !$migrationConfig['preserve_db_config']) {
+            return;
+        }
+
+        $this->logger->info("Updating parameters.php file");
+
+        $content = file_get_contents($filePath);
+        if ($content === false) {
+            $this->logger->error("Failed to read parameters.php file");
+            return;
+        }
+
+        // Update database configuration
+        $patterns = [
+            "'database_host' => '([^']*)'," => "'database_host' => '" . _DB_SERVER_ . "',",
+            "'database_name' => '([^']*)'," => "'database_name' => '" . _DB_NAME_ . "',",
+            "'database_user' => '([^']*)'," => "'database_user' => '" . _DB_USER_ . "',",
+            "'database_password' => '([^']*)'," => "'database_password' => '" . _DB_PASSWD_ . "',",
+            "'database_prefix' => '([^']*)'," => "'database_prefix' => '" . _DB_PREFIX_ . "',",
+        ];
+
+        foreach ($patterns as $pattern => $replacement) {
+            $content = preg_replace('/' . $pattern . '/', $replacement, $content);
+        }
+
+        if (file_put_contents($filePath, $content) === false) {
+            $this->logger->error("Failed to update parameters.php file");
+        } else {
+            $this->logger->info("parameters.php file updated successfully");
+        }
+    }
+
+    /**
+     * Update settings.inc.php file (PS 1.6)
+     *
+     * @param string $filePath
+     * @param array $migrationConfig
+     */
+    private function updateSettingsFile(string $filePath, array $migrationConfig): void
+    {
+        if (empty($migrationConfig['preserve_db_config']) || !$migrationConfig['preserve_db_config']) {
+            return;
+        }
+
+        $this->logger->info("Updating settings.inc.php file");
+
+        $content = file_get_contents($filePath);
+        if ($content === false) {
+            $this->logger->error("Failed to read settings.inc.php file");
+            return;
+        }
+
+        // Update database configuration
+        $patterns = [
+            "define\('_DB_SERVER_', '([^']*)'\);" => "define('_DB_SERVER_', '" . _DB_SERVER_ . "');",
+            "define\('_DB_NAME_', '([^']*)'\);" => "define('_DB_NAME_', '" . _DB_NAME_ . "');",
+            "define\('_DB_USER_', '([^']*)'\);" => "define('_DB_USER_', '" . _DB_USER_ . "');",
+            "define\('_DB_PASSWD_', '([^']*)'\);" => "define('_DB_PASSWD_', '" . _DB_PASSWD_ . "');",
+            "define\('_DB_PREFIX_', '([^']*)'\);" => "define('_DB_PREFIX_', '" . _DB_PREFIX_ . "');",
+        ];
+
+        foreach ($patterns as $pattern => $replacement) {
+            $content = preg_replace('/' . $pattern . '/', $replacement, $content);
+        }
+
+        if (file_put_contents($filePath, $content) === false) {
+            $this->logger->error("Failed to update settings.inc.php file");
+        } else {
+            $this->logger->info("settings.inc.php file updated successfully");
+        }
+    }
+
+    /**
+     * Update .htaccess file
+     *
+     * @param string $baseDir
+     * @param array $migrationConfig
+     */
+    private function updateHtaccessFile(string $baseDir, array $migrationConfig): void
+    {
+        $htaccessFile = $baseDir . '/.htaccess';
+        
+        if (!file_exists($htaccessFile)) {
+            return;
+        }
+
+        $this->logger->info("Updating .htaccess file");
+
+        $content = file_get_contents($htaccessFile);
+        if ($content === false) {
+            $this->logger->error("Failed to read .htaccess file");
+            return;
+        }
+
+        // Update admin directory references
+        if (!empty($migrationConfig['old_admin_dir']) && !empty($migrationConfig['new_admin_dir'])) {
+            $oldAdminDir = trim($migrationConfig['old_admin_dir'], '/');
+            $newAdminDir = trim($migrationConfig['new_admin_dir'], '/');
+            
+            $content = str_replace('/' . $oldAdminDir . '/', '/' . $newAdminDir . '/', $content);
+            $content = str_replace('/' . $oldAdminDir, '/' . $newAdminDir, $content);
+        }
+
+        // Update URL references
+        if (!empty($migrationConfig['old_url']) && !empty($migrationConfig['new_url'])) {
+            $oldUrl = rtrim($migrationConfig['old_url'], '/');
+            $newUrl = rtrim($migrationConfig['new_url'], '/');
+            
+            $content = str_replace($oldUrl, $newUrl, $content);
+        }
+
+        if (file_put_contents($htaccessFile, $content) === false) {
+            $this->logger->error("Failed to update .htaccess file");
+        } else {
+            $this->logger->info(".htaccess file updated successfully");
+        }
+    }
+
+    /**
+     * Update robots.txt file
+     *
+     * @param string $baseDir
+     * @param array $migrationConfig
+     */
+    private function updateRobotsFile(string $baseDir, array $migrationConfig): void
+    {
+        $robotsFile = $baseDir . '/robots.txt';
+        
+        if (!file_exists($robotsFile)) {
+            return;
+        }
+
+        $this->logger->info("Updating robots.txt file");
+
+        $content = file_get_contents($robotsFile);
+        if ($content === false) {
+            $this->logger->error("Failed to read robots.txt file");
+            return;
+        }
+
+        // Update admin directory references
+        if (!empty($migrationConfig['old_admin_dir']) && !empty($migrationConfig['new_admin_dir'])) {
+            $oldAdminDir = trim($migrationConfig['old_admin_dir'], '/');
+            $newAdminDir = trim($migrationConfig['new_admin_dir'], '/');
+            
+            $content = str_replace('/' . $oldAdminDir . '/', '/' . $newAdminDir . '/', $content);
+            $content = str_replace('/' . $oldAdminDir, '/' . $newAdminDir, $content);
+        }
+
+        // Update URL references
+        if (!empty($migrationConfig['old_url']) && !empty($migrationConfig['new_url'])) {
+            $oldUrl = rtrim($migrationConfig['old_url'], '/');
+            $newUrl = rtrim($migrationConfig['new_url'], '/');
+            
+            $content = str_replace($oldUrl, $newUrl, $content);
+        }
+
+        if (file_put_contents($robotsFile, $content) === false) {
+            $this->logger->error("Failed to update robots.txt file");
+        } else {
+            $this->logger->info("robots.txt file updated successfully");
+        }
+    }
+
+    /**
+     * Apply custom file mappings
+     *
+     * @param string $baseDir
+     * @param array $mappings
+     */
+    private function applyFileMappings(string $baseDir, array $mappings): void
+    {
+        $this->logger->info("Applying custom file mappings");
+
+        foreach ($mappings as $source => $destination) {
+            $sourcePath = $baseDir . DIRECTORY_SEPARATOR . ltrim($source, '/');
+            $destinationPath = $baseDir . DIRECTORY_SEPARATOR . ltrim($destination, '/');
+
+            if (!file_exists($sourcePath)) {
+                $this->logger->warning("Source file not found for mapping: {$source}");
+                continue;
+            }
+
+            // Create destination directory if needed
+            $destinationDir = dirname($destinationPath);
+            if (!is_dir($destinationDir)) {
+                mkdir($destinationDir, 0755, true);
+            }
+
+            // Move/rename the file
+            if (rename($sourcePath, $destinationPath)) {
+                $this->logger->info("File mapped from {$source} to {$destination}");
+            } else {
+                $this->logger->error("Failed to map file from {$source} to {$destination}");
+            }
+        }
+    }
+
+    /**
+     * Copy migrated files to final location
+     *
+     * @param string $sourceDir
+     * @param string $destinationDir
+     * @throws Exception
+     */
+    private function copyMigratedFiles(string $sourceDir, string $destinationDir): void
+    {
+        $this->logger->info("Copying migrated files to final location");
+
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($sourceDir, RecursiveDirectoryIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::SELF_FIRST
+        );
+
+        $excludePaths = $this->getExcludePaths();
+
+        foreach ($iterator as $item) {
+            $relativePath = substr($item->getPathname(), strlen($sourceDir) + 1);
+            $destinationPath = $destinationDir . DIRECTORY_SEPARATOR . $relativePath;
+
+            // Skip files/directories that should be excluded
+            if ($this->shouldExcludeFile($destinationPath, $excludePaths)) {
+                continue;
+            }
+
+            if ($item->isDir()) {
+                if (!is_dir($destinationPath)) {
+                    mkdir($destinationPath, 0755, true);
+                }
+            } else {
+                $destinationDirPath = dirname($destinationPath);
+                if (!is_dir($destinationDirPath)) {
+                    mkdir($destinationDirPath, 0755, true);
+                }
+                
+                if (!copy($item->getPathname(), $destinationPath)) {
+                    throw new Exception('Failed to copy file: ' . $relativePath);
+                }
+            }
+        }
+
+        $this->logger->info("Files copied successfully to final location");
+    }
+
+    /**
+     * Get paths to exclude during migration
+     *
+     * @return array
+     */
+    private function getExcludePaths(): array
+    {
+        return [
+            '/cache/',
+            '/log/',
+            '/tmp/',
+            '/var/cache/',
+            '/var/logs/',
+            '/app/cache/',
+            '/app/logs/',
+            '/vendor/',
+            '/node_modules/',
+            '.git',
+            '.svn',
+            'Thumbs.db',
+            '.DS_Store',
+            // Exclude current backup module directory to avoid conflicts
+            '/admin*/ps_copia/',
+        ];
+    }
+
+    /**
+     * Check if a file should be excluded
+     *
+     * @param string $filePath
+     * @param array $excludePaths
+     * @return bool
+     */
+    private function shouldExcludeFile(string $filePath, array $excludePaths): bool
+    {
+        foreach ($excludePaths as $excludePath) {
+            if (strpos($filePath, $excludePath) !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Remove directory recursively
+     *
+     * @param string $directory
+     * @return bool
+     */
+    private function removeDirectoryRecursively(string $directory): bool
+    {
+        if (!is_dir($directory)) {
+            return false;
+        }
+
+        $items = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($directory, RecursiveDirectoryIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST
+        );
+
+        foreach ($items as $item) {
+            if ($item->isDir()) {
+                rmdir($item->getPathname());
+            } else {
+                unlink($item->getPathname());
+            }
+        }
+
+        return rmdir($directory);
+    }
+
+    /**
+     * Get ZIP error message
+     *
+     * @param int $code
+     * @return string
+     */
+    private function getZipError(int $code): string
+    {
+        switch ($code) {
+            case ZipArchive::ER_OK:
+                return 'No error';
+            case ZipArchive::ER_MULTIDISK:
+                return 'Multi-disk zip archives not supported';
+            case ZipArchive::ER_RENAME:
+                return 'Renaming temporary file failed';
+            case ZipArchive::ER_CLOSE:
+                return 'Closing zip archive failed';
+            case ZipArchive::ER_SEEK:
+                return 'Seek error';
+            case ZipArchive::ER_READ:
+                return 'Read error';
+            case ZipArchive::ER_WRITE:
+                return 'Write error';
+            case ZipArchive::ER_CRC:
+                return 'CRC error';
+            case ZipArchive::ER_ZIPCLOSED:
+                return 'Containing zip archive was closed';
+            case ZipArchive::ER_NOENT:
+                return 'No such file';
+            case ZipArchive::ER_EXISTS:
+                return 'File already exists';
+            case ZipArchive::ER_OPEN:
+                return 'Can\'t open file';
+            case ZipArchive::ER_TMPOPEN:
+                return 'Failure to create temporary file';
+            case ZipArchive::ER_ZLIB:
+                return 'Zlib error';
+            case ZipArchive::ER_MEMORY:
+                return 'Memory allocation failure';
+            case ZipArchive::ER_CHANGED:
+                return 'Entry has been changed';
+            case ZipArchive::ER_COMPNOTSUPP:
+                return 'Compression method not supported';
+            case ZipArchive::ER_EOF:
+                return 'Premature EOF';
+            case ZipArchive::ER_INVAL:
+                return 'Invalid argument';
+            case ZipArchive::ER_NOZIP:
+                return 'Not a zip archive';
+            case ZipArchive::ER_INTERNAL:
+                return 'Internal error';
+            case ZipArchive::ER_INCONS:
+                return 'Zip archive inconsistent';
+            case ZipArchive::ER_REMOVE:
+                return 'Can\'t remove file';
+            case ZipArchive::ER_DELETED:
+                return 'Entry has been deleted';
+            default:
+                return 'Unknown error code: ' . $code;
+        }
+    }
+} 

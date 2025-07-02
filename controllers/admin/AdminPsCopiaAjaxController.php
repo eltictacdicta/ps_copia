@@ -79,6 +79,8 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             'PrestaShop\Module\PsCopia\VersionUtils' => '/../../classes/VersionUtils.php',
             'PrestaShop\Module\PsCopia\BackupContainer' => '/../../classes/BackupContainer.php',
             'PrestaShop\Module\PsCopia\Logger\BackupLogger' => '/../../classes/Logger/BackupLogger.php',
+            'PrestaShop\Module\PsCopia\Migration\DatabaseMigrator' => '/../../classes/Migration/DatabaseMigrator.php',
+            'PrestaShop\Module\PsCopia\Migration\FilesMigrator' => '/../../classes/Migration/FilesMigrator.php',
         ];
 
         foreach ($classesToLoad as $className => $filePath) {
@@ -152,6 +154,9 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                     break;
                 case 'import_backup':
                     $this->handleImportBackup();
+                    break;
+                case 'import_backup_with_migration':
+                    $this->handleImportBackupWithMigration();
                     break;
                 case 'download_export':
                     $this->handleDownloadExport();
@@ -1462,6 +1467,186 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             
         } catch (Exception $e) {
             $this->logger->error("Download export failed: " . $e->getMessage());
+            $this->ajaxError($e->getMessage());
+        }
+    }
+
+    /**
+     * Handle backup import with migration support
+     */
+    private function handleImportBackupWithMigration(): void
+    {
+        $this->logger->info("Starting backup import with migration");
+
+        try {
+            // Get migration configuration
+            $migrationConfig = [
+                'migrate_urls' => (bool) Tools::getValue('migrate_urls', false),
+                'old_url' => Tools::getValue('old_url', ''),
+                'new_url' => Tools::getValue('new_url', ''),
+                'migrate_admin_dir' => (bool) Tools::getValue('migrate_admin_dir', false),
+                'old_admin_dir' => Tools::getValue('old_admin_dir', ''),
+                'new_admin_dir' => Tools::getValue('new_admin_dir', ''),
+                'preserve_db_config' => (bool) Tools::getValue('preserve_db_config', true),
+                'configurations' => json_decode(Tools::getValue('configurations', '{}'), true) ?: []
+            ];
+
+            // Verificar que se subió un archivo
+            if (!isset($_FILES['backup_file'])) {
+                throw new Exception('No se ha seleccionado ningún archivo');
+            }
+            
+            $uploadedFile = $_FILES['backup_file'];
+            
+            if ($uploadedFile['error'] !== UPLOAD_ERR_OK) {
+                throw new Exception('Error al subir el archivo: ' . $this->getUploadError($uploadedFile['error']));
+            }
+            
+            // Verificar que es un archivo ZIP
+            $fileInfo = pathinfo($uploadedFile['name']);
+            if (strtolower($fileInfo['extension']) !== 'zip') {
+                throw new Exception('El archivo debe ser un ZIP válido');
+            }
+            
+            $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
+            $tempZipPath = $backupDir . DIRECTORY_SEPARATOR . 'temp_migration_' . time() . '.zip';
+            
+            // Mover archivo subido
+            if (!move_uploaded_file($uploadedFile['tmp_name'], $tempZipPath)) {
+                throw new Exception('Error al mover el archivo subido');
+            }
+            
+            // Extraer y procesar el ZIP
+            $zip = new ZipArchive();
+            $result = $zip->open($tempZipPath);
+            
+            if ($result !== TRUE) {
+                @unlink($tempZipPath);
+                throw new Exception('No se pudo abrir el archivo ZIP: ' . $this->getZipError($result));
+            }
+            
+            // Verificar estructura del backup
+            $hasInfo = $zip->locateName('backup_info.json') !== false;
+            $hasDatabase = false;
+            $hasFiles = false;
+            
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                $filename = $zip->getNameIndex($i);
+                if (strpos($filename, 'database/') === 0) {
+                    $hasDatabase = true;
+                }
+                if (strpos($filename, 'files/') === 0) {
+                    $hasFiles = true;
+                }
+            }
+            
+            if (!$hasInfo || !$hasDatabase || !$hasFiles) {
+                $zip->close();
+                @unlink($tempZipPath);
+                throw new Exception('El archivo ZIP no tiene la estructura correcta de backup');
+            }
+            
+            // Leer metadata
+            $infoContent = $zip->getFromName('backup_info.json');
+            $backupInfo = json_decode($infoContent, true);
+            
+            if (!$backupInfo) {
+                $zip->close();
+                @unlink($tempZipPath);
+                throw new Exception('No se pudo leer la información del backup');
+            }
+            
+            // Extraer archivos
+            $extractPath = $backupDir . DIRECTORY_SEPARATOR . 'temp_migrate_extract_' . time();
+            
+            if (!$zip->extractTo($extractPath)) {
+                $zip->close();
+                @unlink($tempZipPath);
+                throw new Exception('Error al extraer los archivos del backup');
+            }
+            
+            $zip->close();
+            
+            // Obtener rutas de archivos extraídos
+            $dbSourcePath = $extractPath . DIRECTORY_SEPARATOR . 'database';
+            $filesSourcePath = $extractPath . DIRECTORY_SEPARATOR . 'files';
+            
+            $dbFiles = glob($dbSourcePath . DIRECTORY_SEPARATOR . '*');
+            $filesFiles = glob($filesSourcePath . DIRECTORY_SEPARATOR . '*');
+            
+            if (empty($dbFiles) || empty($filesFiles)) {
+                $this->removeDirectoryRecursively($extractPath);
+                @unlink($tempZipPath);
+                throw new Exception('Archivos de backup incompletos');
+            }
+
+            // Migrar base de datos si está habilitado
+            if ($migrationConfig['migrate_urls'] || $migrationConfig['migrate_admin_dir'] || $migrationConfig['preserve_db_config']) {
+                $this->logger->info("Performing database migration");
+                
+                if (class_exists('PrestaShop\Module\PsCopia\Migration\DatabaseMigrator')) {
+                    $dbMigrator = new \PrestaShop\Module\PsCopia\Migration\DatabaseMigrator($this->backupContainer, $this->logger);
+                    $dbMigrator->migrateDatabase($dbFiles[0], $migrationConfig);
+                } else {
+                    throw new Exception('DatabaseMigrator class not found');
+                }
+            } else {
+                // Restaurar base de datos sin migración
+                $this->restoreDatabase(basename($dbFiles[0]));
+            }
+
+            // Migrar archivos si está habilitado
+            if ($migrationConfig['migrate_admin_dir'] || !empty($migrationConfig['file_mappings'])) {
+                $this->logger->info("Performing files migration");
+                
+                if (class_exists('PrestaShop\Module\PsCopia\Migration\FilesMigrator')) {
+                    $filesMigrator = new \PrestaShop\Module\PsCopia\Migration\FilesMigrator($this->backupContainer, $this->logger);
+                    $filesMigrator->migrateFiles($filesFiles[0], $migrationConfig);
+                } else {
+                    throw new Exception('FilesMigrator class not found');
+                }
+            } else {
+                // Restaurar archivos sin migración
+                $this->restoreFiles(basename($filesFiles[0]));
+            }
+
+            // Generar nombre para el backup migrado
+            $timestamp = date('Y-m-d_H-i-s');
+            $newBackupName = 'migrated_backup_' . $timestamp;
+            
+            // Actualizar metadata
+            $newBackupData = [
+                'backup_name' => $newBackupName,
+                'database_file' => basename($dbFiles[0]),
+                'files_file' => basename($filesFiles[0]),
+                'created_at' => date('Y-m-d H:i:s'),
+                'type' => 'complete',
+                'imported_from' => $uploadedFile['name'],
+                'original_backup' => $backupInfo['backup_name'] ?? 'unknown',
+                'migration_applied' => true,
+                'migration_config' => $migrationConfig
+            ];
+            
+            $this->saveBackupMetadata($newBackupData);
+            
+            // Limpiar archivos temporales
+            $this->removeDirectoryRecursively($extractPath);
+            @unlink($tempZipPath);
+            
+            $this->logger->info("Backup import with migration completed successfully", [
+                'new_backup_name' => $newBackupName,
+                'original_filename' => $uploadedFile['name'],
+                'migration_config' => $migrationConfig
+            ]);
+            
+            $this->ajaxSuccess('Backup importado y migrado correctamente como: ' . $newBackupName, [
+                'backup_name' => $newBackupName,
+                'imported_from' => $uploadedFile['name'],
+                'migration_applied' => true
+            ]);
+            
+        } catch (Exception $e) {
+            $this->logger->error("Backup import with migration failed: " . $e->getMessage());
             $this->ajaxError($e->getMessage());
         }
     }
