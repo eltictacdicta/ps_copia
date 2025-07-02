@@ -55,8 +55,44 @@ class FilesMigrator
     {
         $this->logger->info("Starting files migration", $migrationConfig);
 
+        // Enhanced file validation with detailed logging
+        $this->logger->info("Validating backup file", [
+            'backup_file' => $backupFile,
+            'file_exists' => file_exists($backupFile),
+            'file_size' => file_exists($backupFile) ? filesize($backupFile) : 'N/A',
+            'is_readable' => file_exists($backupFile) ? is_readable($backupFile) : false,
+            'directory_exists' => file_exists($backupFile) ? is_dir(dirname($backupFile)) : false,
+            'parent_directory' => dirname($backupFile),
+            'filename' => basename($backupFile)
+        ]);
+
         if (!file_exists($backupFile)) {
-            throw new Exception("Files backup does not exist: " . $backupFile);
+            // Provide detailed error information
+            $parentDir = dirname($backupFile);
+            $availableFiles = [];
+            
+            if (is_dir($parentDir)) {
+                $availableFiles = array_diff(scandir($parentDir), ['.', '..']);
+            }
+            
+            $errorInfo = [
+                'missing_file' => $backupFile,
+                'parent_directory' => $parentDir,
+                'parent_directory_exists' => is_dir($parentDir),
+                'available_files_in_directory' => $availableFiles,
+                'working_directory' => getcwd()
+            ];
+            
+            $this->logger->error("Files backup validation failed", $errorInfo);
+            
+            throw new Exception("Files backup does not exist: " . $backupFile . 
+                "\nParent directory: " . $parentDir . 
+                "\nParent directory exists: " . (is_dir($parentDir) ? 'Yes' : 'No') . 
+                "\nAvailable files: " . implode(', ', $availableFiles));
+        }
+
+        if (!is_readable($backupFile)) {
+            throw new Exception("Files backup is not readable: " . $backupFile);
         }
 
         if (!extension_loaded('zip')) {

@@ -185,12 +185,20 @@ class BackupContainer
     public function getBackupFilename(bool $isDatabase = true, ?string $customName = null): string
     {
         $prefix = $isDatabase ? 'db_backup_' : 'files_backup_';
+        $timestamp = date('Y-m-d_H-i-s');
         
         if ($customName) {
             $safeName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $customName);
-            $filename = $prefix . $safeName;
+            
+            // Avoid prefix duplication - if customName already contains "backup", don't add prefix
+            if (strpos($safeName, 'backup') === 0) {
+                // If it starts with backup, just use it as is with timestamp
+                $filename = $safeName . '_' . $timestamp;
+            } else {
+                // Normal case - add prefix
+                $filename = $prefix . $safeName . '_' . $timestamp;
+            }
         } else {
-            $timestamp = date('Y-m-d_H-i-s');
             $hash = substr(md5(uniqid()), 0, 8);
             $filename = $prefix . $timestamp . '_' . $hash;
         }

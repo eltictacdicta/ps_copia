@@ -1476,7 +1476,7 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
      */
     private function handleImportBackupWithMigration(): void
     {
-                    $this->logger->info("Starting backup import with migration - using intelligent defaults");
+        $this->logger->info("Starting backup import with migration - using intelligent defaults");
 
         try {
             // Get migration configuration with intelligent defaults
@@ -1579,42 +1579,114 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             
             $zip->close();
             
-            // Obtener rutas de archivos extraídos
-            $dbSourcePath = $extractPath . DIRECTORY_SEPARATOR . 'database';
-            $filesSourcePath = $extractPath . DIRECTORY_SEPARATOR . 'files';
+                    // Obtener rutas de archivos extraídos con auto-discovery como fallback
+        $dbSourcePath = $extractPath . DIRECTORY_SEPARATOR . 'database';
+        $filesSourcePath = $extractPath . DIRECTORY_SEPARATOR . 'files';
+        
+        $dbFiles = glob($dbSourcePath . DIRECTORY_SEPARATOR . '*');
+        $filesFiles = glob($filesSourcePath . DIRECTORY_SEPARATOR . '*');
+        
+        // Log detailed information about extracted files for debugging
+        $this->logger->info("Extracted files debugging information", [
+            'db_source_path' => $dbSourcePath,
+            'files_source_path' => $filesSourcePath,
+            'db_files_found' => !empty($dbFiles) ? array_map('basename', $dbFiles) : [],
+            'files_files_found' => !empty($filesFiles) ? array_map('basename', $filesFiles) : [],
+            'db_files_count' => count($dbFiles),
+            'files_files_count' => count($filesFiles)
+        ]);
+        
+        // Try automatic discovery if standard approach fails
+        if (empty($dbFiles) || empty($filesFiles)) {
+            $this->logger->warning("Standard file discovery failed, attempting automatic discovery");
             
-            $dbFiles = glob($dbSourcePath . DIRECTORY_SEPARATOR . '*');
-            $filesFiles = glob($filesSourcePath . DIRECTORY_SEPARATOR . '*');
-            
-            if (empty($dbFiles) || empty($filesFiles)) {
+            try {
+                $discoveredFiles = $this->findBackupFilesAutomatically($extractPath);
+                $dbFile = $discoveredFiles['database'];
+                $filesFile = $discoveredFiles['files'];
+                
+                $this->logger->info("Automatic discovery successful", [
+                    'db_file' => basename($dbFile),
+                    'files_file' => basename($filesFile)
+                ]);
+            } catch (Exception $e) {
                 $this->removeDirectoryRecursively($extractPath);
                 @unlink($tempZipPath);
-                throw new Exception('Archivos de backup incompletos');
+                throw new Exception('Archivos de backup incompletos: ' . $e->getMessage());
             }
+        } else {
+            // Use standard approach
+            $dbFile = $dbFiles[0];
+            $filesFile = $filesFiles[0];
+        }
+            
+            if (!file_exists($dbFile)) {
+                $this->removeDirectoryRecursively($extractPath);
+                @unlink($tempZipPath);
+                throw new Exception("Database backup file does not exist at expected location: " . $dbFile);
+            }
+            
+            if (!file_exists($filesFile)) {
+                $this->removeDirectoryRecursively($extractPath);
+                @unlink($tempZipPath);
+                throw new Exception("Files backup does not exist at expected location: " . $filesFile);
+            }
+            
+            if (!is_readable($dbFile)) {
+                $this->removeDirectoryRecursively($extractPath);
+                @unlink($tempZipPath);
+                throw new Exception("Database backup file is not readable: " . $dbFile);
+            }
+            
+            if (!is_readable($filesFile)) {
+                $this->removeDirectoryRecursively($extractPath);
+                @unlink($tempZipPath);
+                throw new Exception("Files backup file is not readable: " . $filesFile);
+            }
+
+            $this->logger->info("File validation completed successfully", [
+                'db_file' => $dbFile,
+                'db_file_size' => filesize($dbFile),
+                'files_file' => $filesFile,
+                'files_file_size' => filesize($filesFile)
+            ]);
 
             // Siempre ejecutar migración de base de datos para actualizar shop_url al menos
             $this->logger->info("Performing database migration");
             
             if (class_exists('PrestaShop\Module\PsCopia\Migration\DatabaseMigrator')) {
                 $dbMigrator = new \PrestaShop\Module\PsCopia\Migration\DatabaseMigrator($this->backupContainer, $this->logger);
-                $dbMigrator->migrateDatabase($dbFiles[0], $migrationConfig);
+                $dbMigrator->migrateDatabase($dbFile, $migrationConfig);
             } else {
                 throw new Exception('DatabaseMigrator class not found');
             }
 
             // Migrar archivos si está habilitado
             if ($migrationConfig['migrate_admin_dir'] || !empty($migrationConfig['file_mappings'])) {
-                $this->logger->info("Performing files migration");
+                $this->logger->info("Performing files migration", [
+                    'files_file_path' => $filesFile,
+                    'migrate_admin_dir' => $migrationConfig['migrate_admin_dir'],
+                    'file_mappings_count' => !empty($migrationConfig['file_mappings']) ? count($migrationConfig['file_mappings']) : 0
+                ]);
                 
-                if (class_exists('PrestaShop\Module\PsCopia\Migration\FilesMigrator')) {
-                    $filesMigrator = new \PrestaShop\Module\PsCopia\Migration\FilesMigrator($this->backupContainer, $this->logger);
-                    $filesMigrator->migrateFiles($filesFiles[0], $migrationConfig);
-                } else {
-                    throw new Exception('FilesMigrator class not found');
+                try {
+                    if (class_exists('PrestaShop\Module\PsCopia\Migration\FilesMigrator')) {
+                        $filesMigrator = new \PrestaShop\Module\PsCopia\Migration\FilesMigrator($this->backupContainer, $this->logger);
+                        $filesMigrator->migrateFiles($filesFile, $migrationConfig);
+                    } else {
+                        throw new Exception('FilesMigrator class not found');
+                    }
+                } catch (Exception $e) {
+                    $this->logger->error("Files migration failed, falling back to simple restoration: " . $e->getMessage());
+                    
+                    // Fallback: try to restore files without migration
+                    $this->logger->info("Attempting fallback files restoration without migration");
+                    $this->restoreFilesFromPath($filesFile);
                 }
             } else {
                 // Restaurar archivos sin migración
-                $this->restoreFiles(basename($filesFiles[0]));
+                $this->logger->info("Restoring files without migration");
+                $this->restoreFilesFromPath($filesFile);
             }
 
             // Generar nombre para el backup migrado
@@ -1624,8 +1696,8 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             // Actualizar metadata
             $newBackupData = [
                 'backup_name' => $newBackupName,
-                'database_file' => basename($dbFiles[0]),
-                'files_file' => basename($filesFiles[0]),
+                'database_file' => basename($dbFile),
+                'files_file' => basename($filesFile),
                 'created_at' => date('Y-m-d H:i:s'),
                 'type' => 'complete',
                 'imported_from' => $uploadedFile['name'],
@@ -1656,5 +1728,158 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             $this->logger->error("Backup import with migration failed: " . $e->getMessage());
             $this->ajaxError($e->getMessage());
         }
+    }
+
+    /**
+     * Restore files from a specific file path (used during migration)
+     *
+     * @param string $filesBackupPath Full path to the files backup file
+     * @throws Exception
+     */
+    private function restoreFilesFromPath(string $filesBackupPath): void
+    {
+        if (!file_exists($filesBackupPath)) {
+            throw new Exception("Files backup does not exist: " . $filesBackupPath);
+        }
+
+        if (!extension_loaded('zip')) {
+            throw new Exception('ZIP PHP extension is not installed');
+        }
+
+        $this->logger->info("Restoring files from path: " . $filesBackupPath);
+
+        $zip = new ZipArchive();
+        $result = $zip->open($filesBackupPath);
+        
+        if ($result !== TRUE) {
+            throw new Exception('Cannot open ZIP file: ' . $this->getZipError($result));
+        }
+
+        // Extract to temporary directory first
+        $tempDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ps_copia_restore_' . time();
+        if (!mkdir($tempDir, 0755, true)) {
+            throw new Exception('Cannot create temporary directory: ' . $tempDir);
+        }
+
+        try {
+            if (!$zip->extractTo($tempDir)) {
+                throw new Exception('Failed to extract ZIP file');
+            }
+            
+            $zip->close();
+
+            // Copy files from temp to real location
+            $this->copyDirectoryRecursively($tempDir, _PS_ROOT_DIR_);
+            
+        } finally {
+            // Clean up temp directory
+            $this->removeDirectoryRecursively($tempDir);
+        }
+
+        $this->logger->info("Files restored successfully from " . basename($filesBackupPath));
+    }
+
+    /**
+     * Try to find backup files automatically if exact names don't match
+     * This helps recover from filename generation issues
+     *
+     * @param string $extractPath Base extraction path
+     * @return array Array with 'database' and 'files' paths, or throws exception
+     * @throws Exception
+     */
+    private function findBackupFilesAutomatically(string $extractPath): array
+    {
+        $this->logger->info("Attempting automatic backup file discovery", ['extract_path' => $extractPath]);
+        
+        $dbSourcePath = $extractPath . DIRECTORY_SEPARATOR . 'database';
+        $filesSourcePath = $extractPath . DIRECTORY_SEPARATOR . 'files';
+        
+        $result = ['database' => null, 'files' => null];
+        
+        // Find database files
+        if (is_dir($dbSourcePath)) {
+            $dbFiles = array_diff(scandir($dbSourcePath), ['.', '..']);
+            $dbFiles = array_filter($dbFiles, function($file) use ($dbSourcePath) {
+                $fullPath = $dbSourcePath . DIRECTORY_SEPARATOR . $file;
+                return is_file($fullPath) && (
+                    strpos($file, '.sql') !== false || 
+                    strpos($file, '.gz') !== false ||
+                    strpos($file, 'db_') !== false ||
+                    strpos($file, 'database') !== false
+                );
+            });
+            
+            if (!empty($dbFiles)) {
+                $result['database'] = $dbSourcePath . DIRECTORY_SEPARATOR . reset($dbFiles);
+                $this->logger->info("Auto-discovered database file", ['file' => reset($dbFiles)]);
+            }
+        }
+        
+        // Find files backup
+        if (is_dir($filesSourcePath)) {
+            $filesFiles = array_diff(scandir($filesSourcePath), ['.', '..']);
+            $filesFiles = array_filter($filesFiles, function($file) use ($filesSourcePath) {
+                $fullPath = $filesSourcePath . DIRECTORY_SEPARATOR . $file;
+                return is_file($fullPath) && (
+                    strpos($file, '.zip') !== false ||
+                    strpos($file, 'files_') !== false ||
+                    strpos($file, 'backup') !== false
+                );
+            });
+            
+            if (!empty($filesFiles)) {
+                $result['files'] = $filesSourcePath . DIRECTORY_SEPARATOR . reset($filesFiles);
+                $this->logger->info("Auto-discovered files backup", ['file' => reset($filesFiles)]);
+            }
+        }
+        
+        // Validate results
+        if (!$result['database'] || !file_exists($result['database'])) {
+            throw new Exception("Could not find database backup file in extracted content. Directory structure: " . 
+                json_encode($this->getDirectoryStructure($extractPath)));
+        }
+        
+        if (!$result['files'] || !file_exists($result['files'])) {
+            throw new Exception("Could not find files backup in extracted content. Directory structure: " . 
+                json_encode($this->getDirectoryStructure($extractPath)));
+        }
+        
+        $this->logger->info("Automatic file discovery successful", $result);
+        return $result;
+    }
+
+    /**
+     * Get directory structure for debugging
+     *
+     * @param string $path
+     * @return array
+     */
+    private function getDirectoryStructure(string $path): array
+    {
+        $structure = [];
+        
+        if (!is_dir($path)) {
+            return ['error' => 'Not a directory: ' . $path];
+        }
+        
+        try {
+            $items = array_diff(scandir($path), ['.', '..']);
+            
+            foreach ($items as $item) {
+                $fullPath = $path . DIRECTORY_SEPARATOR . $item;
+                if (is_dir($fullPath)) {
+                    $structure['directories'][] = $item;
+                    // Get one level deep for directories
+                    $subItems = array_diff(scandir($fullPath), ['.', '..']);
+                    $structure['directory_contents'][$item] = array_slice($subItems, 0, 10); // Limit to first 10 items
+                } else {
+                    $structure['files'][] = $item;
+                }
+            }
+        } catch (Exception $e) {
+            $structure['error'] = $e->getMessage();
+        }
+        
+        return $structure;
     }
 }
