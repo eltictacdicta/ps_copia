@@ -22,7 +22,6 @@
 namespace PrestaShop\Module\PsCopia;
 
 use InvalidArgumentException;
-use PrestaShop\Module\PsCopia\Exceptions\UpgradeException;
 
 class VersionUtils
 {
@@ -110,7 +109,7 @@ class VersionUtils
     /**
      * @return 'major'|'minor'|'patch'
      *
-     * @throws UpgradeException
+     * @throws InvalidArgumentException
      */
     public static function getUpdateType(string $originVersion, string $destinationVersion)
     {
@@ -125,7 +124,7 @@ class VersionUtils
             return 'patch';
         }
 
-        throw new UpgradeException('Versions are identical');
+        throw new InvalidArgumentException('Versions are identical');
     }
 
     /**

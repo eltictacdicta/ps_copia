@@ -136,7 +136,6 @@ class Ps_copia extends Module
     private function loadRequiredClasses(): void
     {
         $classesToLoad = [
-            'PrestaShop\Module\PsCopia\Exceptions\UpgradeException' => '/classes/Exceptions/UpgradeException.php',
             'PrestaShop\Module\PsCopia\VersionUtils' => '/classes/VersionUtils.php',
             'PrestaShop\Module\PsCopia\UpgradeTools\Translator' => '/classes/UpgradeTools/Translator.php',
         ];

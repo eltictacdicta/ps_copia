@@ -97,7 +97,6 @@ class AdminPsCopiaController extends ModuleAdminController
         $classesToLoad = [
             'PrestaShop\Module\PsCopia\VersionUtils' => '/../../classes/VersionUtils.php',
             'PrestaShop\Module\PsCopia\BackupContainer' => '/../../classes/BackupContainer.php',
-            'PrestaShop\Module\PsCopia\Exceptions\UpgradeException' => '/../../classes/Exceptions/UpgradeException.php',
         ];
 
         foreach ($classesToLoad as $className => $filePath) {
