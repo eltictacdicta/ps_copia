@@ -70,6 +70,9 @@ class DatabaseMigrator
             // Apply URL migrations
             if (!empty($migrationConfig['old_url']) && !empty($migrationConfig['new_url'])) {
                 $this->migrateUrls($migrationConfig['old_url'], $migrationConfig['new_url']);
+            } else {
+                // Always update shop_url table with current domain even if URLs are not explicitly configured
+                $this->updateShopUrlTable();
             }
 
             // Apply admin directory migrations
@@ -219,11 +222,21 @@ class DatabaseMigrator
         // Remove trailing slashes for consistency
         $oldUrl = rtrim($oldUrl, '/');
         $newUrl = rtrim($newUrl, '/');
+        $newDomain = parse_url($newUrl, PHP_URL_HOST);
 
-        // Special handling for shop_url table first
-        $this->migrateShopUrlTable($oldUrl, $newUrl);
+        // Update shop_url table with the new domain
+        try {
+            $shopUrlTable = _DB_PREFIX_ . 'shop_url';
+            if ($this->tableExists($shopUrlTable) && $newDomain) {
+                $sql = "UPDATE `{$shopUrlTable}` SET `domain` = '" . pSQL($newDomain) . "', `domain_ssl` = '" . pSQL($newDomain) . "'";
+                $this->db->execute($sql);
+                $this->logger->info("Updated domain and domain_ssl in {$shopUrlTable} to {$newDomain}");
+            }
+        } catch (Exception $e) {
+            $this->logger->error("Failed to update shop_url table: " . $e->getMessage());
+        }
 
-        // Tables and columns that commonly contain URLs (excluding shop_url as it's handled separately)
+        // Tables and columns that commonly contain URLs
         $urlTables = [
             'configuration' => ['value'],
             'cms' => ['link_rewrite'],
@@ -265,82 +278,6 @@ class DatabaseMigrator
     }
 
     /**
-     * Migrate shop_url table with specific handling for domain fields
-     *
-     * @param string $oldUrl
-     * @param string $newUrl
-     */
-    private function migrateShopUrlTable(string $oldUrl, string $newUrl): void
-    {
-        $shopUrlTable = _DB_PREFIX_ . 'shop_url';
-        
-        // Check if table exists
-        if (!$this->tableExists($shopUrlTable)) {
-            $this->logger->warning("Table {$shopUrlTable} does not exist");
-            return;
-        }
-
-        // Extract domain from URLs
-        $oldParsed = parse_url($oldUrl);
-        $newParsed = parse_url($newUrl);
-        
-        if (!$oldParsed || !$newParsed || !isset($oldParsed['host']) || !isset($newParsed['host'])) {
-            $this->logger->error("Invalid URLs provided for shop_url migration");
-            return;
-        }
-
-        $oldDomain = $oldParsed['host'];
-        $newDomain = $newParsed['host'];
-
-        try {
-            // Update domain field
-            if ($this->columnExists($shopUrlTable, 'domain')) {
-                $sql = "UPDATE `{$shopUrlTable}` SET `domain` = '" . pSQL($newDomain) . "' WHERE `domain` = '" . pSQL($oldDomain) . "'";
-                $this->db->execute($sql);
-                $this->logger->info("Updated domain in shop_url table: {$oldDomain} -> {$newDomain}");
-            }
-
-            // Update domain_ssl field
-            if ($this->columnExists($shopUrlTable, 'domain_ssl')) {
-                $sql = "UPDATE `{$shopUrlTable}` SET `domain_ssl` = '" . pSQL($newDomain) . "' WHERE `domain_ssl` = '" . pSQL($oldDomain) . "'";
-                $this->db->execute($sql);
-                $this->logger->info("Updated domain_ssl in shop_url table: {$oldDomain} -> {$newDomain}");
-            }
-
-            // Also handle physical_uri if needed (base path)
-            if ($this->columnExists($shopUrlTable, 'physical_uri')) {
-                $oldPath = isset($oldParsed['path']) ? $oldParsed['path'] : '/';
-                $newPath = isset($newParsed['path']) ? $newParsed['path'] : '/';
-                
-                // Ensure paths end with slash
-                $oldPath = rtrim($oldPath, '/') . '/';
-                $newPath = rtrim($newPath, '/') . '/';
-                
-                if ($oldPath !== $newPath) {
-                    $sql = "UPDATE `{$shopUrlTable}` SET `physical_uri` = '" . pSQL($newPath) . "' WHERE `physical_uri` = '" . pSQL($oldPath) . "'";
-                    $this->db->execute($sql);
-                    $this->logger->info("Updated physical_uri in shop_url table: {$oldPath} -> {$newPath}");
-                }
-            }
-
-            // Also handle virtual_uri if needed
-            if ($this->columnExists($shopUrlTable, 'virtual_uri')) {
-                $oldPath = isset($oldParsed['path']) ? trim($oldParsed['path'], '/') : '';
-                $newPath = isset($newParsed['path']) ? trim($newParsed['path'], '/') : '';
-                
-                if ($oldPath !== $newPath) {
-                    $sql = "UPDATE `{$shopUrlTable}` SET `virtual_uri` = '" . pSQL($newPath) . "' WHERE `virtual_uri` = '" . pSQL($oldPath) . "'";
-                    $this->db->execute($sql);
-                    $this->logger->info("Updated virtual_uri in shop_url table: {$oldPath} -> {$newPath}");
-                }
-            }
-
-        } catch (Exception $e) {
-            $this->logger->error("Failed to update shop_url table: " . $e->getMessage());
-        }
-    }
-
-    /**
      * Migrate URLs in configuration table
      *
      * @param string $oldUrl
@@ -348,37 +285,9 @@ class DatabaseMigrator
      */
     private function migrateConfigurationUrls(string $oldUrl, string $newUrl): void
     {
-        // Extract domain from URLs for specific configurations
-        $oldParsed = parse_url($oldUrl);
-        $newParsed = parse_url($newUrl);
-        
-        if ($oldParsed && $newParsed && isset($oldParsed['host']) && isset($newParsed['host'])) {
-            $oldDomain = $oldParsed['host'];
-            $newDomain = $newParsed['host'];
-            
-            // Update domain-specific configurations
-            $domainKeys = [
-                'PS_SHOP_DOMAIN',
-                'PS_SHOP_DOMAIN_SSL'
-            ];
-            
-            foreach ($domainKeys as $key) {
-                try {
-                    $sql = "UPDATE `" . _DB_PREFIX_ . "configuration` 
-                            SET `value` = '" . pSQL($newDomain) . "' 
-                            WHERE `name` = '" . pSQL($key) . "' AND `value` = '" . pSQL($oldDomain) . "'";
-                            
-                    $this->db->execute($sql);
-                    
-                    $this->logger->info("Updated domain configuration key: {$key} = {$newDomain}");
-                } catch (Exception $e) {
-                    $this->logger->error("Failed to update domain configuration {$key}: " . $e->getMessage());
-                }
-            }
-        }
-
-        // General URL replacement for other configurations
-        $urlKeys = [
+        $configKeys = [
+            'PS_SHOP_DOMAIN',
+            'PS_SHOP_DOMAIN_SSL',
             'PS_BASE_URI',
             'PS_SHOP_EMAIL',
             'PS_IMG_URL',
@@ -389,7 +298,7 @@ class DatabaseMigrator
             'PS_MEDIA_SERVER_3'
         ];
 
-        foreach ($urlKeys as $key) {
+        foreach ($configKeys as $key) {
             try {
                 $sql = "UPDATE `" . _DB_PREFIX_ . "configuration` 
                         SET `value` = REPLACE(`value`, '" . pSQL($oldUrl) . "', '" . pSQL($newUrl) . "') 
@@ -397,9 +306,9 @@ class DatabaseMigrator
                         
                 $this->db->execute($sql);
                 
-                $this->logger->info("Updated URL configuration key: {$key}");
+                $this->logger->info("Updated configuration key: {$key}");
             } catch (Exception $e) {
-                $this->logger->error("Failed to update URL configuration {$key}: " . $e->getMessage());
+                $this->logger->error("Failed to update configuration {$key}: " . $e->getMessage());
             }
         }
     }
@@ -534,4 +443,118 @@ class DatabaseMigrator
             return false;
         }
     }
+
+    /**
+     * Update shop_url table with current domain
+     * This method is called when no specific URL migration is configured
+     * but we still want to update the shop_url table with the current domain
+     */
+    private function updateShopUrlTable(): void
+    {
+        $this->logger->info("Updating shop_url table with current domain");
+
+        try {
+            // Get current domain from various sources
+            $currentDomain = $this->getCurrentDomain();
+            
+            $this->logger->info("Detected current domain: " . ($currentDomain ?: 'NULL'));
+            
+            if (!$currentDomain) {
+                $this->logger->warning("Could not determine current domain, skipping shop_url update");
+                return;
+            }
+
+            $shopUrlTable = _DB_PREFIX_ . 'shop_url';
+            if ($this->tableExists($shopUrlTable)) {
+                // Log current state before update
+                $currentData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
+                $this->logger->info("Current shop_url data before update", $currentData ?: []);
+                
+                $sql = "UPDATE `{$shopUrlTable}` SET `domain` = '" . pSQL($currentDomain) . "', `domain_ssl` = '" . pSQL($currentDomain) . "'";
+                $result = $this->db->execute($sql);
+                
+                $this->logger->info("Update query executed with result: " . ($result ? 'SUCCESS' : 'FAILED'));
+                
+                // Log state after update
+                $newData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
+                $this->logger->info("New shop_url data after update", $newData ?: []);
+                
+                $this->logger->info("Updated domain and domain_ssl in {$shopUrlTable} to {$currentDomain}");
+            } else {
+                $this->logger->warning("shop_url table does not exist");
+            }
+        } catch (Exception $e) {
+            $this->logger->error("Failed to update shop_url table: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get current domain from various sources
+     *
+     * @return string|null
+     */
+    private function getCurrentDomain(): ?string
+    {
+        $this->logger->info("Attempting to detect current domain...");
+        
+        // Try to get domain from HTTP_HOST
+        if (isset($_SERVER['HTTP_HOST']) && !empty($_SERVER['HTTP_HOST'])) {
+            $this->logger->info("Found domain from HTTP_HOST: " . $_SERVER['HTTP_HOST']);
+            return $_SERVER['HTTP_HOST'];
+        }
+        
+        // Try to get from SERVER_NAME
+        if (isset($_SERVER['SERVER_NAME']) && !empty($_SERVER['SERVER_NAME'])) {
+            $this->logger->info("Found domain from SERVER_NAME: " . $_SERVER['SERVER_NAME']);
+            return $_SERVER['SERVER_NAME'];
+        }
+        
+        // Try to get from configuration if available
+        try {
+            $sql = "SELECT `value` FROM `" . _DB_PREFIX_ . "configuration` WHERE `name` = 'PS_SHOP_DOMAIN' LIMIT 1";
+            $result = $this->db->executeS($sql);
+            if (!empty($result) && !empty($result[0]['value'])) {
+                $this->logger->info("Found domain from PS_SHOP_DOMAIN config: " . $result[0]['value']);
+                return $result[0]['value'];
+            }
+        } catch (Exception $e) {
+            $this->logger->warning("Failed to get domain from configuration: " . $e->getMessage());
+        }
+        
+        // Try to get from Context if available
+        if (class_exists('Context') && Context::getContext() && Context::getContext()->shop) {
+            try {
+                $shop = Context::getContext()->shop;
+                if (method_exists($shop, 'getBaseURL')) {
+                    $baseUrl = $shop->getBaseURL(true);
+                    $parsedUrl = parse_url($baseUrl);
+                    if (isset($parsedUrl['host'])) {
+                        $this->logger->info("Found domain from Context shop: " . $parsedUrl['host']);
+                        return $parsedUrl['host'];
+                    }
+                }
+            } catch (Exception $e) {
+                $this->logger->warning("Failed to get domain from Context: " . $e->getMessage());
+            }
+        }
+        
+        // As a last resort, try to extract from current shop_url table
+        try {
+            $sql = "SELECT `domain` FROM `" . _DB_PREFIX_ . "shop_url` WHERE `domain` != '' AND `domain` IS NOT NULL LIMIT 1";
+            $result = $this->db->executeS($sql);
+            if (!empty($result) && !empty($result[0]['domain'])) {
+                // But only if it's not obviously from a different environment
+                $domain = $result[0]['domain'];
+                if (!strpos($domain, 'localhost') && !strpos($domain, '127.0.0.1') && !strpos($domain, '.local')) {
+                    $this->logger->info("Found domain from existing shop_url: " . $domain);
+                    return $domain;
+                }
+            }
+        } catch (Exception $e) {
+            $this->logger->warning("Failed to get domain from shop_url table: " . $e->getMessage());
+        }
+        
+                 $this->logger->warning("Could not detect domain from any source");
+         return null;
+     }
 } 

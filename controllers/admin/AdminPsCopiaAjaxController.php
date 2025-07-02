@@ -1580,19 +1580,14 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                 throw new Exception('Archivos de backup incompletos');
             }
 
-            // Migrar base de datos si está habilitado
-            if ($migrationConfig['migrate_urls'] || $migrationConfig['migrate_admin_dir'] || $migrationConfig['preserve_db_config']) {
-                $this->logger->info("Performing database migration");
-                
-                if (class_exists('PrestaShop\Module\PsCopia\Migration\DatabaseMigrator')) {
-                    $dbMigrator = new \PrestaShop\Module\PsCopia\Migration\DatabaseMigrator($this->backupContainer, $this->logger);
-                    $dbMigrator->migrateDatabase($dbFiles[0], $migrationConfig);
-                } else {
-                    throw new Exception('DatabaseMigrator class not found');
-                }
+            // Siempre ejecutar migración de base de datos para actualizar shop_url al menos
+            $this->logger->info("Performing database migration");
+            
+            if (class_exists('PrestaShop\Module\PsCopia\Migration\DatabaseMigrator')) {
+                $dbMigrator = new \PrestaShop\Module\PsCopia\Migration\DatabaseMigrator($this->backupContainer, $this->logger);
+                $dbMigrator->migrateDatabase($dbFiles[0], $migrationConfig);
             } else {
-                // Restaurar base de datos sin migración
-                $this->restoreDatabase(basename($dbFiles[0]));
+                throw new Exception('DatabaseMigrator class not found');
             }
 
             // Migrar archivos si está habilitado
