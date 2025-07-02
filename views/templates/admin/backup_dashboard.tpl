@@ -219,9 +219,9 @@
                 </div>
                 
                 <div class="alert alert-info">
-                    <strong><i class="icon-info-circle"></i> Opciones de Migración:</strong>
+                    <strong><i class="icon-info-circle"></i> Opciones de Migración Automática:</strong>
                     <ul style="margin-bottom: 0;">
-                        <li><strong>Migrar URLs:</strong> Cambia el dominio del backup al dominio actual</li>
+                        <li><strong>Migrar URLs:</strong> Auto-detecta y cambia dominios entre el backup y sistema actual</li>
                         <li><strong>Migrar Carpeta Admin:</strong> Actualiza las rutas de la carpeta de administración</li>
                         <li><strong>Preservar Config DB:</strong> Mantiene la configuración de conexión actual</li>
                     </ul>
@@ -241,30 +241,55 @@
                             <h4 class="panel-title">
                                 <input type="checkbox" id="migrate_urls" name="migrate_urls" value="1" style="margin-right: 8px;">
                                 <label for="migrate_urls" style="font-weight: bold;">
-                                    <i class="icon-globe"></i> Migrar URLs (Cambiar Dominio)
+                                    <i class="icon-globe"></i> Migrar URLs (Auto-detectar y Cambiar Dominios)
                                 </label>
                             </h4>
                         </div>
                         <div class="panel-body" id="urls_config" style="display: none;">
+                            <div class="alert alert-info">
+                                <i class="icon-info-circle"></i> <strong>Detección Automática:</strong> 
+                                Si no completas las URLs, el sistema intentará detectarlas automáticamente del backup y configuración actual.
+                            </div>
                             <div class="row">
                                 <div class="col-md-6">
                                     <div class="form-group">
                                         <label for="old_url"><strong>URL del Backup (Origen):</strong></label>
-                                        <input type="url" class="form-control" id="old_url" name="old_url" placeholder="https://tienda-origen.com">
+                                        <div class="input-group">
+                                            <input type="url" class="form-control" id="old_url" name="old_url" placeholder="Se auto-detectará del backup">
+                                            <span class="input-group-btn">
+                                                <button type="button" class="btn btn-default" id="clear_old_url" title="Limpiar para auto-detectar">
+                                                    <i class="icon-refresh"></i>
+                                                </button>
+                                            </span>
+                                        </div>
                                         <small class="help-block">
-                                            <i class="icon-info-circle"></i> URL completa de donde proviene el backup
+                                            <i class="icon-magic"></i> <strong>Auto-detección:</strong> Se extraerá automáticamente del backup
                                         </small>
                                     </div>
                                 </div>
                                 <div class="col-md-6">
                                     <div class="form-group">
                                         <label for="new_url"><strong>URL Actual (Destino):</strong></label>
-                                        <input type="url" class="form-control" id="new_url" name="new_url" placeholder="https://tienda-actual.com">
+                                        <div class="input-group">
+                                            <input type="url" class="form-control" id="new_url" name="new_url" placeholder="Se auto-detectará del sistema">
+                                            <span class="input-group-btn">
+                                                <button type="button" class="btn btn-default" id="fill_current_url" title="Usar URL actual">
+                                                    <i class="icon-home"></i>
+                                                </button>
+                                            </span>
+                                        </div>
                                         <small class="help-block">
-                                            <i class="icon-info-circle"></i> URL donde se instalará el backup
+                                            <i class="icon-magic"></i> <strong>Auto-detección:</strong> Se usará la URL actual del sistema
                                         </small>
                                     </div>
                                 </div>
+                            </div>
+                            <div class="text-center">
+                                <p class="help-block">
+                                    <i class="icon-lightbulb"></i> <strong>Tip:</strong> 
+                                    Puedes dejar ambos campos vacíos para que se detecten automáticamente, 
+                                    o completar solo uno si quieres especificar una URL en particular.
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -1118,6 +1143,16 @@ $(document).ready(function() {
         }
     });
 
+    // Botón para llenar URL actual
+    $('#fill_current_url').on('click', function() {
+        $('#new_url').val(currentUrl);
+    });
+
+    // Botón para limpiar URL antigua (permitir auto-detección)
+    $('#clear_old_url').on('click', function() {
+        $('#old_url').val('');
+    });
+
     // Auto-completar el nuevo directorio admin con el actual
 {/literal}
     $('#new_admin_dir').val('{$admin_dir|escape:"javascript":"UTF-8"}');
@@ -1142,30 +1177,33 @@ $(document).ready(function() {
 
         // Validar configuración de migración
         if ($('#migrate_urls').is(':checked')) {
-            if (!$('#old_url').val() || !$('#new_url').val()) {
-                alert('Por favor completa las URLs de origen y destino para la migración');
-                return;
-            }
-            
-            // Validar formato de URLs
             var oldUrl = $('#old_url').val();
             var newUrl = $('#new_url').val();
             
-            if (!oldUrl.match(/^https?:\/\/.+/)) {
+            // Si se proporcionan URLs, validar formato
+            if (oldUrl && !oldUrl.match(/^https?:\/\/.+/)) {
                 alert('La URL de origen debe comenzar con http:// o https://');
                 return;
             }
             
-            if (!newUrl.match(/^https?:\/\/.+/)) {
+            if (newUrl && !newUrl.match(/^https?:\/\/.+/)) {
                 alert('La URL de destino debe comenzar con http:// o https://');
                 return;
             }
             
             console.log('Migración de URLs configurada:', {
                 migrate_urls: true,
-                old_url: oldUrl,
-                new_url: newUrl
+                old_url: oldUrl || '(auto-detectar)',
+                new_url: newUrl || '(auto-detectar)'
             });
+            
+            if (!oldUrl && !newUrl) {
+                console.log('Se utilizará auto-detección para ambas URLs');
+            } else if (!oldUrl) {
+                console.log('Se auto-detectará la URL de origen del backup');
+            } else if (!newUrl) {
+                console.log('Se auto-detectará la URL de destino del sistema actual');
+            }
         }
 
         if ($('#migrate_admin_dir').is(':checked')) {

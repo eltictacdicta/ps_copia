@@ -57,12 +57,15 @@ class DatabaseMigrator
     {
         $this->logger->info("Starting database migration with configuration", $migrationConfig);
         
+        // Auto-detect URLs if not provided
+        $migrationConfig = $this->autoDetectUrls($backupFile, $migrationConfig);
+        
         // Log specific URL migration configuration
         $migrate_urls = isset($migrationConfig['migrate_urls']) ? $migrationConfig['migrate_urls'] : false;
         $old_url = isset($migrationConfig['old_url']) ? $migrationConfig['old_url'] : '';
         $new_url = isset($migrationConfig['new_url']) ? $migrationConfig['new_url'] : '';
         
-        $this->logger->info("URL Migration Configuration", [
+        $this->logger->info("URL Migration Configuration (after auto-detection)", [
             'migrate_urls' => $migrate_urls,
             'old_url' => $old_url,
             'new_url' => $new_url,
@@ -246,11 +249,22 @@ class DatabaseMigrator
         // Remove trailing slashes for consistency
         $oldUrl = rtrim($oldUrl, '/');
         $newUrl = rtrim($newUrl, '/');
+        
+        // Extract domains (without protocol, as stored in PrestaShop)
+        $oldDomain = parse_url($oldUrl, PHP_URL_HOST);
         $newDomain = parse_url($newUrl, PHP_URL_HOST);
         
-        $this->logger->info("Extracted domain from new URL: " . ($newDomain ?: 'NULL'));
+        // Remove port from domain if present (PrestaShop stores domain without port)
+        if ($oldDomain && strpos($oldDomain, ':') !== false) {
+            $oldDomain = explode(':', $oldDomain)[0];
+        }
+        if ($newDomain && strpos($newDomain, ':') !== false) {
+            $newDomain = explode(':', $newDomain)[0];
+        }
+        
+        $this->logger->info("Domain migration: {$oldDomain} → {$newDomain}");
 
-        // Update shop_url table with the new domain
+        // Update shop_url table with the new domain (without protocol)
         try {
             $shopUrlTable = _DB_PREFIX_ . 'shop_url';
             
@@ -263,7 +277,7 @@ class DatabaseMigrator
                 $currentData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
                 $this->logger->info("Current shop_url data before update", $currentData ?: []);
                 
-                // Update both domain and domain_ssl, and also update the physical_uri and virtual_uri if needed
+                // Update both domain and domain_ssl (PrestaShop stores domains without protocol)
                 $newParsedUrl = parse_url($newUrl);
                 $physicalUri = isset($newParsedUrl['path']) ? rtrim($newParsedUrl['path'], '/') . '/' : '/';
                 
@@ -559,16 +573,28 @@ class DatabaseMigrator
     {
         $this->logger->info("Attempting to detect current domain...");
         
+        $domain = null;
+        
         // Try to get domain from HTTP_HOST
         if (isset($_SERVER['HTTP_HOST']) && !empty($_SERVER['HTTP_HOST'])) {
-            $this->logger->info("Found domain from HTTP_HOST: " . $_SERVER['HTTP_HOST']);
-            return $_SERVER['HTTP_HOST'];
+            $domain = $_SERVER['HTTP_HOST'];
+            $this->logger->info("Found domain from HTTP_HOST: " . $domain);
+        }
+        // Try to get from SERVER_NAME
+        elseif (isset($_SERVER['SERVER_NAME']) && !empty($_SERVER['SERVER_NAME'])) {
+            $domain = $_SERVER['SERVER_NAME'];
+            $this->logger->info("Found domain from SERVER_NAME: " . $domain);
         }
         
-        // Try to get from SERVER_NAME
-        if (isset($_SERVER['SERVER_NAME']) && !empty($_SERVER['SERVER_NAME'])) {
-            $this->logger->info("Found domain from SERVER_NAME: " . $_SERVER['SERVER_NAME']);
-            return $_SERVER['SERVER_NAME'];
+        // Remove port from domain if present (PrestaShop stores domain without port)
+        if ($domain && strpos($domain, ':') !== false) {
+            $originalDomain = $domain;
+            $domain = explode(':', $domain)[0];
+            $this->logger->info("Removed port from domain: {$originalDomain} → {$domain}");
+        }
+        
+        if ($domain) {
+            return $domain;
         }
         
         // Try to get from configuration if available
@@ -576,8 +602,9 @@ class DatabaseMigrator
             $sql = "SELECT `value` FROM `" . _DB_PREFIX_ . "configuration` WHERE `name` = 'PS_SHOP_DOMAIN' LIMIT 1";
             $result = $this->db->executeS($sql);
             if (!empty($result) && !empty($result[0]['value'])) {
-                $this->logger->info("Found domain from PS_SHOP_DOMAIN config: " . $result[0]['value']);
-                return $result[0]['value'];
+                $domain = $result[0]['value'];
+                $this->logger->info("Found domain from PS_SHOP_DOMAIN config: " . $domain);
+                return $domain;
             }
         } catch (Exception $e) {
             $this->logger->warning("Failed to get domain from configuration: " . $e->getMessage());
@@ -591,8 +618,13 @@ class DatabaseMigrator
                     $baseUrl = $shop->getBaseURL(true);
                     $parsedUrl = parse_url($baseUrl);
                     if (isset($parsedUrl['host'])) {
-                        $this->logger->info("Found domain from Context shop: " . $parsedUrl['host']);
-                        return $parsedUrl['host'];
+                        $domain = $parsedUrl['host'];
+                        // Remove port if present
+                        if (strpos($domain, ':') !== false) {
+                            $domain = explode(':', $domain)[0];
+                        }
+                        $this->logger->info("Found domain from Context shop: " . $domain);
+                        return $domain;
                     }
                 }
             } catch (Exception $e) {
@@ -683,5 +715,276 @@ class DatabaseMigrator
          } catch (Exception $e) {
              $this->logger->error("Failed to force update shop_url table: " . $e->getMessage());
          }
+     }
+
+     /**
+      * Auto-detect source and destination URLs if not provided
+      *
+      * @param string $backupFile
+      * @param array $migrationConfig
+      * @return array Updated migration config
+      */
+     private function autoDetectUrls(string $backupFile, array $migrationConfig): array
+     {
+         $this->logger->info("Auto-detecting URLs for migration");
+
+         // Only auto-detect if URL migration is enabled or not explicitly disabled
+         $shouldAutoDetect = isset($migrationConfig['migrate_urls']) && $migrationConfig['migrate_urls'];
+         
+         if (!$shouldAutoDetect && (empty($migrationConfig['old_url']) || empty($migrationConfig['new_url']))) {
+             $this->logger->info("URL migration not enabled, but URLs missing - enabling auto-detection");
+             $shouldAutoDetect = true;
+         }
+
+         if (!$shouldAutoDetect) {
+             $this->logger->info("Skipping URL auto-detection (not enabled or URLs already provided)");
+             return $migrationConfig;
+         }
+
+         // Detect destination URL (current system) - this is fast
+         if (empty($migrationConfig['new_url'])) {
+             $currentDomain = $this->getCurrentDomain();
+             if ($currentDomain) {
+                 // Build full URL with protocol
+                 $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http';
+                 $migrationConfig['new_url'] = $protocol . '://' . $currentDomain;
+                 $this->logger->info("Auto-detected destination URL: " . $migrationConfig['new_url']);
+             }
+         }
+
+         // Detect source URL from backup database - this is expensive, only do if needed
+         if (empty($migrationConfig['old_url'])) {
+             $this->logger->info("Attempting to extract source domain from backup (this may take a moment...)");
+             $sourceDomain = $this->extractSourceDomainFromBackup($backupFile);
+             if ($sourceDomain) {
+                 // Assume https for backup URL (most common case)
+                 $migrationConfig['old_url'] = 'https://' . $sourceDomain;
+                 $this->logger->info("Auto-detected source URL from backup: " . $migrationConfig['old_url']);
+             } else {
+                 $this->logger->warning("Could not extract source domain from backup");
+             }
+         }
+
+         // Auto-enable URL migration if both URLs are available and different
+         if (!empty($migrationConfig['old_url']) && !empty($migrationConfig['new_url'])) {
+             $oldDomain = parse_url($migrationConfig['old_url'], PHP_URL_HOST);
+             $newDomain = parse_url($migrationConfig['new_url'], PHP_URL_HOST);
+             
+             if ($oldDomain && $newDomain && $oldDomain !== $newDomain) {
+                 if (!isset($migrationConfig['migrate_urls']) || !$migrationConfig['migrate_urls']) {
+                     $migrationConfig['migrate_urls'] = true;
+                     $this->logger->info("Auto-enabled URL migration: {$oldDomain} → {$newDomain}");
+                 }
+             } elseif ($oldDomain && $newDomain && $oldDomain === $newDomain) {
+                 $this->logger->info("Source and destination domains are the same ({$oldDomain}), URL migration not needed");
+             }
+         }
+
+         return $migrationConfig;
+     }
+
+     /**
+      * Extract source domain from backup database
+      *
+      * @param string $backupFile
+      * @return string|null
+      */
+     private function extractSourceDomainFromBackup(string $backupFile): ?string
+     {
+         try {
+             $this->logger->info("Extracting source domain from backup: " . basename($backupFile));
+
+             // First try: Extract domain from SQL file content (faster method)
+             $domain = $this->extractDomainFromSqlContent($backupFile);
+             if ($domain) {
+                 return $domain;
+             }
+
+             // Fallback: Use full database restoration (slower but more reliable)
+             return $this->extractDomainFromFullRestore($backupFile);
+
+         } catch (Exception $e) {
+             $this->logger->warning("Failed to extract source domain from backup: " . $e->getMessage());
+         }
+
+         return null;
+     }
+
+     /**
+      * Try to extract domain by parsing SQL file content directly
+      *
+      * @param string $backupFile
+      * @return string|null
+      */
+     private function extractDomainFromSqlContent(string $backupFile): ?string
+     {
+         try {
+             $this->logger->info("Attempting fast domain extraction from SQL content");
+
+             $isGzipped = pathinfo($backupFile, PATHINFO_EXTENSION) === 'gz';
+             
+             // Read file content
+             if ($isGzipped) {
+                 $content = gzfile($backupFile);
+             } else {
+                 $content = file($backupFile);
+             }
+
+             if (!$content) {
+                 return null;
+             }
+
+             // Look for INSERT statements into shop_url table
+             $patterns = [
+                 '/INSERT INTO `.*?shop_url`.*?VALUES.*?\(.*?,.*?,.*?,.*?,.*?\'([^\']+)\'/',
+                 '/INSERT INTO `.*?shop_url`.*?\(.*?,.*?,.*?,.*?,.*?,.*?\'([^\']+)\'/',
+                 '/\(.*?,.*?,.*?,.*?,.*?\'([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\'/'
+             ];
+
+             foreach ($content as $line) {
+                 if (stripos($line, 'shop_url') !== false && stripos($line, 'INSERT') !== false) {
+                     foreach ($patterns as $pattern) {
+                         if (preg_match($pattern, $line, $matches)) {
+                             $domain = $matches[1];
+                             // Validate that it looks like a domain
+                             if (preg_match('/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/', $domain) && 
+                                 !in_array($domain, ['localhost', '127.0.0.1', 'example.com'])) {
+                                 $this->logger->info("Fast extracted domain from SQL: " . $domain);
+                                 return $domain;
+                             }
+                         }
+                     }
+                 }
+             }
+
+             $this->logger->info("Could not extract domain from SQL content, will try full restore");
+             return null;
+
+         } catch (Exception $e) {
+             $this->logger->warning("Fast domain extraction failed: " . $e->getMessage());
+             return null;
+         }
+     }
+
+     /**
+      * Extract domain by restoring to temporary database
+      *
+      * @param string $backupFile
+      * @return string|null
+      */
+     private function extractDomainFromFullRestore(string $backupFile): ?string
+     {
+         try {
+             $this->logger->info("Using full restore method for domain extraction");
+
+             // Create temporary database to extract source domain
+             $tempDbName = 'temp_extract_' . uniqid();
+             
+             // Create temporary database
+             $createDbSql = "CREATE DATABASE IF NOT EXISTS `{$tempDbName}`";
+             $this->db->execute($createDbSql);
+
+             // Restore backup to temporary database
+             $isGzipped = pathinfo($backupFile, PATHINFO_EXTENSION) === 'gz';
+             
+             if ($isGzipped) {
+                 $command = sprintf(
+                     'zcat %s | mysql --host=%s --user=%s --password=%s %s',
+                     escapeshellarg($backupFile),
+                     escapeshellarg(_DB_SERVER_),
+                     escapeshellarg(_DB_USER_),
+                     escapeshellarg(_DB_PASSWD_),
+                     escapeshellarg($tempDbName)
+                 );
+             } else {
+                 $command = sprintf(
+                     'mysql --host=%s --user=%s --password=%s %s < %s',
+                     escapeshellarg(_DB_SERVER_),
+                     escapeshellarg(_DB_USER_),
+                     escapeshellarg(_DB_PASSWD_),
+                     escapeshellarg($tempDbName),
+                     escapeshellarg($backupFile)
+                 );
+             }
+
+             exec($command . ' 2>&1', $output, $returnVar);
+
+             if ($returnVar === 0) {
+                 // Extract domain from shop_url table
+                 $prefix = $this->extractDbPrefixFromBackup($tempDbName);
+                 $shopUrlTable = $tempDbName . '.' . $prefix . 'shop_url';
+                 
+                 $sql = "SELECT `domain` FROM `{$shopUrlTable}` WHERE `domain` != '' AND `domain` IS NOT NULL LIMIT 1";
+                 $result = $this->db->executeS($sql);
+                 
+                 $sourceDomain = null;
+                 if (!empty($result) && !empty($result[0]['domain'])) {
+                     $sourceDomain = $result[0]['domain'];
+                     $this->logger->info("Found source domain in backup: " . $sourceDomain);
+                 }
+
+                 // Clean up temporary database
+                 $this->db->execute("DROP DATABASE IF EXISTS `{$tempDbName}`");
+
+                 return $sourceDomain;
+             } else {
+                 $this->logger->warning("Failed to restore backup to temporary database for domain extraction");
+                 $this->db->execute("DROP DATABASE IF EXISTS `{$tempDbName}`");
+             }
+
+         } catch (Exception $e) {
+             $this->logger->warning("Full restore domain extraction failed: " . $e->getMessage());
+         }
+
+         return null;
+     }
+
+     /**
+      * Extract database prefix from backup
+      *
+      * @param string $tempDbName
+      * @return string
+      */
+     private function extractDbPrefixFromBackup(string $tempDbName): string
+     {
+         try {
+             // Look for shop_url table with different prefixes
+             $commonPrefixes = ['ps_', 'prestashop_', ''];
+             
+             foreach ($commonPrefixes as $prefix) {
+                 $tableName = $prefix . 'shop_url';
+                 $sql = "SHOW TABLES FROM `{$tempDbName}` LIKE '{$tableName}'";
+                 $result = $this->db->executeS($sql);
+                 
+                 if (!empty($result)) {
+                     $this->logger->info("Detected database prefix in backup: '{$prefix}'");
+                     return $prefix;
+                 }
+             }
+
+             // If no common prefix found, try to detect from any table
+             $sql = "SHOW TABLES FROM `{$tempDbName}`";
+             $tables = $this->db->executeS($sql);
+             
+             if (!empty($tables)) {
+                 $firstTable = reset($tables);
+                 $tableName = reset($firstTable);
+                 
+                 // Extract prefix by looking for underscore pattern
+                 if (preg_match('/^(.+?)_/', $tableName, $matches)) {
+                     $detectedPrefix = $matches[1] . '_';
+                     $this->logger->info("Auto-detected database prefix: '{$detectedPrefix}'");
+                     return $detectedPrefix;
+                 }
+             }
+
+         } catch (Exception $e) {
+             $this->logger->warning("Failed to detect database prefix: " . $e->getMessage());
+         }
+
+         // Fallback to current prefix
+         $currentPrefix = _DB_PREFIX_;
+         $this->logger->info("Using current database prefix as fallback: '{$currentPrefix}'");
+         return $currentPrefix;
      }
 } 
