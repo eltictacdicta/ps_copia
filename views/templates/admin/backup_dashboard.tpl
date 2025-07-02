@@ -219,11 +219,11 @@
                 </div>
                 
                 <div class="alert alert-info">
-                    <strong><i class="icon-info-circle"></i> Opciones de Migración Automática:</strong>
+                    <strong><i class="icon-magic"></i> Configuración Automática Inteligente:</strong>
                     <ul style="margin-bottom: 0;">
-                        <li><strong>Migrar URLs:</strong> Auto-detecta y cambia dominios entre el backup y sistema actual</li>
-                        <li><strong>Migrar Carpeta Admin:</strong> Actualiza las rutas de la carpeta de administración</li>
-                        <li><strong>Preservar Config DB:</strong> Mantiene la configuración de conexión actual</li>
+                        <li><strong><i class="icon-check text-success"></i> Migrar URLs:</strong> Auto-detecta y actualiza dominios automáticamente</li>
+                        <li><strong><i class="icon-lock text-warning"></i> Carpeta Admin:</strong> Se preserva tal como está en el backup original</li>
+                        <li><strong><i class="icon-shield text-success"></i> Config BD:</strong> Mantiene obligatoriamente la configuración actual</li>
                     </ul>
                 </div>
                 
@@ -239,16 +239,20 @@
                     <div class="panel panel-primary">
                         <div class="panel-heading">
                             <h4 class="panel-title">
-                                <input type="checkbox" id="migrate_urls" name="migrate_urls" value="1" style="margin-right: 8px;">
+                                <input type="checkbox" id="migrate_urls" name="migrate_urls" value="1" checked style="margin-right: 8px;">
                                 <label for="migrate_urls" style="font-weight: bold;">
                                     <i class="icon-globe"></i> Migrar URLs (Auto-detectar y Cambiar Dominios)
                                 </label>
+                                <small style="display: block; font-weight: normal; color: #666; margin-top: 5px;">
+                                    <i class="icon-info-circle"></i> Recomendado: Detecta automáticamente las URLs y actualiza el sistema
+                                </small>
                             </h4>
                         </div>
-                        <div class="panel-body" id="urls_config" style="display: none;">
+                        <div class="panel-body" id="urls_config">
                             <div class="alert alert-info">
-                                <i class="icon-info-circle"></i> <strong>Detección Automática:</strong> 
-                                Si no completas las URLs, el sistema intentará detectarlas automáticamente del backup y configuración actual.
+                                <i class="icon-magic"></i> <strong>Detección Automática Habilitada:</strong> 
+                                El sistema detectará automáticamente las URLs del backup y del sistema actual. 
+                                Puedes especificar URLs manualmente solo si es necesario.
                             </div>
                             <div class="row">
                                 <div class="col-md-6">
@@ -287,8 +291,8 @@
                             <div class="text-center">
                                 <p class="help-block">
                                     <i class="icon-lightbulb"></i> <strong>Tip:</strong> 
-                                    Puedes dejar ambos campos vacíos para que se detecten automáticamente, 
-                                    o completar solo uno si quieres especificar una URL en particular.
+                                    Deja ambos campos vacíos para autodetección completa, 
+                                    o especifica una URL solo si necesitas forzar un valor específico.
                                 </p>
                             </div>
                         </div>
@@ -298,45 +302,45 @@
                     <div class="panel panel-default">
                         <div class="panel-heading">
                             <h4 class="panel-title">
-                                <input type="checkbox" id="migrate_admin_dir" name="migrate_admin_dir" value="1">
-                                <label for="migrate_admin_dir">Migrar Carpeta de Admin</label>
+                                <input type="checkbox" id="migrate_admin_dir" name="migrate_admin_dir" value="1" disabled style="margin-right: 8px;">
+                                <label for="migrate_admin_dir" style="color: #999;">
+                                    <del>Migrar Carpeta de Admin</del>
+                                </label>
+                                <small style="display: block; font-weight: normal; color: #666; margin-top: 5px;">
+                                    <i class="icon-info-circle"></i> Deshabilitado: La carpeta admin se mantiene tal como está en el backup original
+                                </small>
                             </h4>
                         </div>
-                        <div class="panel-body" id="admin_config" style="display: none;">
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="form-group">
-                                        <label for="old_admin_dir">Carpeta Admin Antigua:</label>
-                                        <input type="text" class="form-control" id="old_admin_dir" name="old_admin_dir" placeholder="admin123">
-                                        <small class="help-block">Nombre de la carpeta admin del backup</small>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="form-group">
-                                        <label for="new_admin_dir">Carpeta Admin Nueva:</label>
-                                        <input type="text" class="form-control" id="new_admin_dir" name="new_admin_dir" placeholder="{$admin_dir|escape:'html':'UTF-8'}">
-                                        <small class="help-block">Nombre de la carpeta admin actual</small>
-                                    </div>
-                                </div>
+                        <div class="panel-body">
+                            <div class="alert alert-warning">
+                                <i class="icon-exclamation-triangle"></i> <strong>Configuración Automática:</strong><br>
+                                La carpeta admin se mantiene con su nombre y configuración original del backup.
+                                Esto preserva la compatibilidad y evita problemas de acceso.
+                                <br><br>
+                                <strong>Carpeta admin del backup:</strong> <code id="detected-admin-dir">Se detectará automáticamente</code>
                             </div>
                         </div>
                     </div>
 
                     <!-- Configuración de Base de Datos -->
-                    <div class="panel panel-default">
+                    <div class="panel panel-success">
                         <div class="panel-heading">
                             <h4 class="panel-title">
-                                <input type="checkbox" id="preserve_db_config" name="preserve_db_config" value="1" checked>
-                                <label for="preserve_db_config">Preservar Configuración de Base de Datos Actual</label>
+                                <input type="checkbox" id="preserve_db_config" name="preserve_db_config" value="1" checked disabled style="margin-right: 8px;">
+                                <label for="preserve_db_config" style="font-weight: bold;">
+                                    <i class="icon-database"></i> Preservar Configuración de Base de Datos Actual
+                                </label>
+                                <small style="display: block; font-weight: normal; color: #666; margin-top: 5px;">
+                                    <i class="icon-check"></i> Obligatorio: Mantiene la configuración de conexión a BD del sistema actual
+                                </small>
                             </h4>
                         </div>
                         <div class="panel-body">
-                            <div class="alert alert-info">
-                                <small>
-                                    <i class="icon-info-circle"></i> 
-                                    Si está marcado, se mantendrá la configuración de conexión a la base de datos actual. 
-                                    Recomendado para migraciones entre servidores diferentes.
-                                </small>
+                            <div class="alert alert-success">
+                                <i class="icon-shield"></i> <strong>Configuración Obligatoria:</strong><br>
+                                Se mantendrá automáticamente la configuración de conexión a la base de datos actual.
+                                Esto es esencial para migraciones entre servidores diferentes y garantiza que 
+                                el sistema continúe funcionando con la configuración de BD correcta.
                             </div>
                         </div>
                     </div>
@@ -1111,24 +1115,26 @@ $(document).ready(function() {
         $('#uploadMigrationModal').modal('show');
     });
 
-    // Manejar checkboxes de configuración de migración
+    // Configuración de migración simplificada
+    // URLs siempre habilitadas con autodetección
+    $('#migrate_urls').prop('checked', true).prop('disabled', false);
+    $('#urls_config').show();
+    
+    // Admin directory siempre deshabilitado (se preserva del backup)
+    $('#migrate_admin_dir').prop('checked', false).prop('disabled', true);
+    
+    // Preserve DB config siempre habilitado (obligatorio)
+    $('#preserve_db_config').prop('checked', true).prop('disabled', true);
+
+    // Manejar solo el checkbox de URLs (el único que puede cambiar)
     $('#migrate_urls').on('change', function() {
         if ($(this).is(':checked')) {
             $('#urls_config').show();
-            $('#old_url, #new_url').prop('required', true);
+            // URLs no son required porque tenemos autodetección
+            $('#old_url, #new_url').prop('required', false);
         } else {
             $('#urls_config').hide();
             $('#old_url, #new_url').prop('required', false);
-        }
-    });
-
-    $('#migrate_admin_dir').on('change', function() {
-        if ($(this).is(':checked')) {
-            $('#admin_config').show();
-            $('#old_admin_dir, #new_admin_dir').prop('required', true);
-        } else {
-            $('#admin_config').hide();
-            $('#old_admin_dir, #new_admin_dir').prop('required', false);
         }
     });
 
@@ -1153,10 +1159,7 @@ $(document).ready(function() {
         $('#old_url').val('');
     });
 
-    // Auto-completar el nuevo directorio admin con el actual
-{/literal}
-    $('#new_admin_dir').val('{$admin_dir|escape:"javascript":"UTF-8"}');
-{literal}
+    // Nota: El directorio admin se mantiene automáticamente del backup original
 
     // Manejar confirmación de importación con migración
     $('#confirmMigrationBtn').on('click', function() {
@@ -1176,41 +1179,34 @@ $(document).ready(function() {
         }
 
         // Validar configuración de migración
-        if ($('#migrate_urls').is(':checked')) {
-            var oldUrl = $('#old_url').val();
-            var newUrl = $('#new_url').val();
-            
-            // Si se proporcionan URLs, validar formato
-            if (oldUrl && !oldUrl.match(/^https?:\/\/.+/)) {
-                alert('La URL de origen debe comenzar con http:// o https://');
-                return;
-            }
-            
-            if (newUrl && !newUrl.match(/^https?:\/\/.+/)) {
-                alert('La URL de destino debe comenzar con http:// o https://');
-                return;
-            }
-            
-            console.log('Migración de URLs configurada:', {
-                migrate_urls: true,
-                old_url: oldUrl || '(auto-detectar)',
-                new_url: newUrl || '(auto-detectar)'
-            });
-            
-            if (!oldUrl && !newUrl) {
-                console.log('Se utilizará auto-detección para ambas URLs');
-            } else if (!oldUrl) {
-                console.log('Se auto-detectará la URL de origen del backup');
-            } else if (!newUrl) {
-                console.log('Se auto-detectará la URL de destino del sistema actual');
-            }
+        var oldUrl = $('#old_url').val();
+        var newUrl = $('#new_url').val();
+        
+        // Si se proporcionan URLs, validar formato (opcional por autodetección)
+        if (oldUrl && !oldUrl.match(/^https?:\/\/.+/)) {
+            alert('La URL de origen debe comenzar con http:// o https://');
+            return;
         }
-
-        if ($('#migrate_admin_dir').is(':checked')) {
-            if (!$('#old_admin_dir').val() || !$('#new_admin_dir').val()) {
-                alert('Por favor completa los nombres de carpeta admin antigua y nueva');
-                return;
-            }
+        
+        if (newUrl && !newUrl.match(/^https?:\/\/.+/)) {
+            alert('La URL de destino debe comenzar con http:// o https://');
+            return;
+        }
+        
+        console.log('Configuración de migración:', {
+            migrate_urls: true, // Siempre habilitado
+            old_url: oldUrl || '(auto-detectar)',
+            new_url: newUrl || '(auto-detectar)',
+            migrate_admin_dir: false, // Siempre deshabilitado
+            preserve_db_config: true // Siempre obligatorio
+        });
+        
+        if (!oldUrl && !newUrl) {
+            console.log('Se utilizará auto-detección completa para ambas URLs');
+        } else if (!oldUrl) {
+            console.log('Se auto-detectará la URL de origen del backup');
+        } else if (!newUrl) {
+            console.log('Se auto-detectará la URL de destino del sistema actual');
         }
         
         var $btn = $(this);
@@ -1312,9 +1308,14 @@ $(document).ready(function() {
         $('#migration-progress').hide();
         $('#migration-progress .progress-bar').css('width', '0%');
         $('#confirmMigrationBtn').prop('disabled', false).html('<i class="icon-magic"></i> Importar con Migración');
-        $('#migrate_urls, #migrate_admin_dir').prop('checked', false);
-        $('#urls_config, #admin_config').hide();
-        $('#preserve_db_config').prop('checked', true);
+        
+        // Restablecer valores predeterminados inteligentes
+        $('#migrate_urls').prop('checked', true).prop('disabled', false);
+        $('#urls_config').show();
+        
+        $('#migrate_admin_dir').prop('checked', false).prop('disabled', true);
+        
+        $('#preserve_db_config').prop('checked', true).prop('disabled', true);
     });
 });
 {/literal}

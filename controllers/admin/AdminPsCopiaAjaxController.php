@@ -1476,20 +1476,32 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
      */
     private function handleImportBackupWithMigration(): void
     {
-        $this->logger->info("Starting backup import with migration");
+                    $this->logger->info("Starting backup import with migration - using intelligent defaults");
 
         try {
-            // Get migration configuration
+            // Get migration configuration with intelligent defaults
             $migrationConfig = [
-                'migrate_urls' => (bool) Tools::getValue('migrate_urls', false),
+                // URLs siempre habilitadas con autodetección (valor predeterminado inteligente)
+                'migrate_urls' => (bool) Tools::getValue('migrate_urls', true),
                 'old_url' => Tools::getValue('old_url', ''),
                 'new_url' => Tools::getValue('new_url', ''),
-                'migrate_admin_dir' => (bool) Tools::getValue('migrate_admin_dir', false),
-                'old_admin_dir' => Tools::getValue('old_admin_dir', ''),
-                'new_admin_dir' => Tools::getValue('new_admin_dir', ''),
-                'preserve_db_config' => (bool) Tools::getValue('preserve_db_config', true),
+                // Admin directory siempre deshabilitado (se preserva del backup)
+                'migrate_admin_dir' => false, // Siempre false, ignoramos el valor del formulario
+                'old_admin_dir' => '', // No necesario
+                'new_admin_dir' => '', // No necesario
+                // Preserve DB config siempre obligatorio
+                'preserve_db_config' => true, // Siempre true, es obligatorio
                 'configurations' => json_decode(Tools::getValue('configurations', '{}'), true) ?: []
             ];
+
+            // Log de configuración aplicada
+            $this->logger->info("Migration configuration applied", [
+                'migrate_urls' => $migrationConfig['migrate_urls'],
+                'old_url' => $migrationConfig['old_url'] ?: '(auto-detect)',
+                'new_url' => $migrationConfig['new_url'] ?: '(auto-detect)', 
+                'migrate_admin_dir' => $migrationConfig['migrate_admin_dir'],
+                'preserve_db_config' => $migrationConfig['preserve_db_config']
+            ]);
 
             // Verificar que se subió un archivo
             if (!isset($_FILES['backup_file'])) {
