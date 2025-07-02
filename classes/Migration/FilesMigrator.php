@@ -122,10 +122,9 @@ class FilesMigrator
      */
     private function applyFileMigrations(string $tempDir, array $migrationConfig): void
     {
-        // Migrate admin directory if needed
-        if (!empty($migrationConfig['old_admin_dir']) && !empty($migrationConfig['new_admin_dir'])) {
-            $this->migrateAdminDirectory($tempDir, $migrationConfig['old_admin_dir'], $migrationConfig['new_admin_dir']);
-        }
+        // NOTA: Ya no migramos directorio admin - se mantiene la estructura original del backup
+        // La carpeta admin conservará su nombre y configuración original
+        $this->logger->info("Manteniendo directorio admin con estructura original del backup");
 
         // Update configuration files
         $this->updateConfigurationFiles($tempDir, $migrationConfig);
@@ -134,39 +133,6 @@ class FilesMigrator
         if (!empty($migrationConfig['file_mappings'])) {
             $this->applyFileMappings($tempDir, $migrationConfig['file_mappings']);
         }
-    }
-
-    /**
-     * Migrate admin directory
-     *
-     * @param string $baseDir
-     * @param string $oldAdminDir
-     * @param string $newAdminDir
-     * @throws Exception
-     */
-    private function migrateAdminDirectory(string $baseDir, string $oldAdminDir, string $newAdminDir): void
-    {
-        $this->logger->info("Migrating admin directory from {$oldAdminDir} to {$newAdminDir}");
-
-        $oldAdminPath = $baseDir . DIRECTORY_SEPARATOR . trim($oldAdminDir, '/');
-        $newAdminPath = $baseDir . DIRECTORY_SEPARATOR . trim($newAdminDir, '/');
-
-        if (!is_dir($oldAdminPath)) {
-            $this->logger->warning("Old admin directory not found: {$oldAdminPath}");
-            return;
-        }
-
-        // If new admin directory already exists, remove it
-        if (is_dir($newAdminPath)) {
-            $this->removeDirectoryRecursively($newAdminPath);
-        }
-
-        // Rename the directory
-        if (!rename($oldAdminPath, $newAdminPath)) {
-            throw new Exception("Failed to rename admin directory from {$oldAdminDir} to {$newAdminDir}");
-        }
-
-        $this->logger->info("Admin directory successfully migrated");
     }
 
     /**
@@ -312,16 +278,10 @@ class FilesMigrator
             return;
         }
 
-        // Update admin directory references
-        if (!empty($migrationConfig['old_admin_dir']) && !empty($migrationConfig['new_admin_dir'])) {
-            $oldAdminDir = trim($migrationConfig['old_admin_dir'], '/');
-            $newAdminDir = trim($migrationConfig['new_admin_dir'], '/');
-            
-            $content = str_replace('/' . $oldAdminDir . '/', '/' . $newAdminDir . '/', $content);
-            $content = str_replace('/' . $oldAdminDir, '/' . $newAdminDir, $content);
-        }
+        // NOTA: Ya no actualizamos referencias del directorio admin - se mantiene la configuración original del backup
+        $this->logger->info("Preservando referencias del directorio admin en .htaccess del backup original");
 
-        // Update URL references
+        // Update URL references only (not admin directory references)
         if (!empty($migrationConfig['old_url']) && !empty($migrationConfig['new_url'])) {
             $oldUrl = rtrim($migrationConfig['old_url'], '/');
             $newUrl = rtrim($migrationConfig['new_url'], '/');
@@ -332,7 +292,7 @@ class FilesMigrator
         if (file_put_contents($htaccessFile, $content) === false) {
             $this->logger->error("Failed to update .htaccess file");
         } else {
-            $this->logger->info(".htaccess file updated successfully");
+            $this->logger->info(".htaccess file updated successfully (admin references preserved)");
         }
     }
 
@@ -358,16 +318,10 @@ class FilesMigrator
             return;
         }
 
-        // Update admin directory references
-        if (!empty($migrationConfig['old_admin_dir']) && !empty($migrationConfig['new_admin_dir'])) {
-            $oldAdminDir = trim($migrationConfig['old_admin_dir'], '/');
-            $newAdminDir = trim($migrationConfig['new_admin_dir'], '/');
-            
-            $content = str_replace('/' . $oldAdminDir . '/', '/' . $newAdminDir . '/', $content);
-            $content = str_replace('/' . $oldAdminDir, '/' . $newAdminDir, $content);
-        }
+        // NOTA: Ya no actualizamos referencias del directorio admin - se mantiene la configuración original del backup
+        $this->logger->info("Preservando referencias del directorio admin en robots.txt del backup original");
 
-        // Update URL references
+        // Update URL references only (not admin directory references)
         if (!empty($migrationConfig['old_url']) && !empty($migrationConfig['new_url'])) {
             $oldUrl = rtrim($migrationConfig['old_url'], '/');
             $newUrl = rtrim($migrationConfig['new_url'], '/');
@@ -378,7 +332,7 @@ class FilesMigrator
         if (file_put_contents($robotsFile, $content) === false) {
             $this->logger->error("Failed to update robots.txt file");
         } else {
-            $this->logger->info("robots.txt file updated successfully");
+            $this->logger->info("robots.txt file updated successfully (admin references preserved)");
         }
     }
 

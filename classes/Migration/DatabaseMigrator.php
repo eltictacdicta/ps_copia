@@ -97,10 +97,10 @@ class DatabaseMigrator
                 $this->updateShopUrlTable();
             }
 
-            // Apply admin directory migrations
-            if (!empty($migrationConfig['old_admin_dir']) && !empty($migrationConfig['new_admin_dir'])) {
-                $this->migrateAdminDirectory($migrationConfig['old_admin_dir'], $migrationConfig['new_admin_dir']);
-            }
+            // NOTA: Ya no migramos directorios admin - siempre se mantiene la configuración original del backup
+            // La carpeta admin conservará la URL/configuración antigua independientemente de la configuración
+            $this->logger->info("Preservando configuración de directorio admin del backup original");
+            $this->preserveAdminConfiguration();
 
             // Update database configuration if provided
             if (!empty($migrationConfig['preserve_db_config']) && $migrationConfig['preserve_db_config']) {
@@ -161,12 +161,8 @@ class DatabaseMigrator
             }
         }
 
-        // Check admin directory migration
-        if (isset($config['migrate_admin_dir']) && $config['migrate_admin_dir']) {
-            if (empty($config['old_admin_dir']) || empty($config['new_admin_dir'])) {
-                throw new Exception('Directorios de admin antiguos y nuevos son requeridos para la migración');
-            }
-        }
+        // NOTA: Ya no validamos directorios admin - siempre se mantiene la configuración original del backup
+        // La carpeta admin mantendrá siempre la URL/configuración antigua (del backup)
     }
 
     /**
@@ -992,5 +988,37 @@ class DatabaseMigrator
          $currentPrefix = _DB_PREFIX_;
          $this->logger->info("Using current database prefix as fallback: '{$currentPrefix}'");
          return $currentPrefix;
+     }
+
+     /**
+      * Preserve admin configuration from backup
+      * This method ensures that admin directory settings remain unchanged from the original backup
+      * The admin folder will always maintain the original URL/configuration
+      */
+     private function preserveAdminConfiguration(): void
+     {
+         $this->logger->info("Preserving admin configuration from backup - no admin directory migration will be performed");
+
+         // Log admin-related configuration that will be preserved
+         try {
+             $adminConfigKeys = [
+                 'PS_ADMIN_DIR',
+                 'PS_BASE_URI'
+             ];
+
+             foreach ($adminConfigKeys as $key) {
+                 $sql = "SELECT `value` FROM `" . _DB_PREFIX_ . "configuration` WHERE `name` = '" . pSQL($key) . "' LIMIT 1";
+                 $result = $this->db->executeS($sql);
+                 
+                 if (!empty($result) && isset($result[0]['value'])) {
+                     $this->logger->info("Preserving admin config: {$key} = " . $result[0]['value']);
+                 }
+             }
+
+             $this->logger->info("Admin configuration preserved successfully - original backup settings maintained");
+
+         } catch (Exception $e) {
+             $this->logger->error("Error while logging admin configuration preservation: " . $e->getMessage());
+         }
      }
 } 
