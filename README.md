@@ -261,9 +261,32 @@ graph
 The following steps will be executed during the backup:
 
 1. **BackupInitialization**: Start of the whole process, clear potential leftover temporary files from a previous process.
-2. **BackupFiles**: Backup store files, including or not images depending on the configuration.
+2. **BackupFiles**: Backup store files, including or not images depending on the configuration. Files are automatically filtered to exclude problematic directories and files.
 3. **BackupDatabase**: It saves the current database structure and content.
 4. **BackupComplete**: This step will display a success message, clear temporary files and will end the process.
+
+#### File Exclusions During Backup
+
+To ensure a clean backup and prevent restoration issues, the following files and directories are automatically excluded from the backup:
+
+**Version Control Files:**
+- `.git/` directories and all git-related files (`.gitignore`, `.gitkeep`, `.gitattributes`)
+- `.svn/` directories (Subversion)
+- `.hg/` directories (Mercurial)
+
+**Temporary and Cache Files:**
+- `var/cache/` and `cache/` directories
+- `var/logs/` and `log/` directories
+- Files with extensions: `.log`, `.tmp`, `.temp`, `.cache`
+- System temporary directories
+
+**Module-specific Exclusions:**
+- Backup directories created by this module
+- Previous backup files
+
+**Important Note:** Dependencies like `vendor/` (Composer) and `node_modules/` (npm) are **included** in the backup to ensure proper functionality after restoration. Only version control files and temporary/cache files are excluded to prevent restoration conflicts.
+
+These exclusions help prevent common restoration issues, particularly with `.git` files that can cause conflicts when restoring to a different environment or when the repository state differs between backup and restore time.
 
 ### Restore steps
 

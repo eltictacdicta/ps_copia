@@ -423,6 +423,9 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             _PS_ROOT_DIR_ . '/var/logs',
             _PS_ROOT_DIR_ . '/cache',
             _PS_ROOT_DIR_ . '/log',
+            _PS_ROOT_DIR_ . '/.git',
+            _PS_ROOT_DIR_ . '/.svn',
+            _PS_ROOT_DIR_ . '/.hg',
         ];
 
         return array_filter(array_map('realpath', $excludePaths));
@@ -444,8 +447,27 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             }
         }
 
+        // Get the relative path from PS_ROOT_DIR for more specific checks
+        $relativePath = str_replace(_PS_ROOT_DIR_ . DIRECTORY_SEPARATOR, '', $filePath);
+        
+        // Exclude version control files and directories
+        if (preg_match('#(^|/)\.git(/|$)#', $relativePath)) {
+            return true;
+        }
+        if (preg_match('#(^|/)\.svn(/|$)#', $relativePath)) {
+            return true;
+        }
+        if (preg_match('#(^|/)\.hg(/|$)#', $relativePath)) {
+            return true;
+        }
+
         // Exclude temporary and log files
         if (preg_match('/\.(log|tmp|temp|cache)$/i', $filePath)) {
+            return true;
+        }
+
+        // Exclude specific problematic files
+        if (preg_match('/\.(gitignore|gitkeep|gitattributes)$/i', $filePath)) {
             return true;
         }
 
