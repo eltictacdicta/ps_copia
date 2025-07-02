@@ -40,8 +40,8 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
     {
         parent::__construct();
 
-        // Load autoloader
-        $this->loadAutoloader();
+        // Load required classes
+        $this->loadRequiredClasses();
 
         // Check PHP version compatibility
         if (!VersionUtils::isActualPHPVersionCompatible()) {
@@ -59,13 +59,33 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
     }
 
     /**
-     * Load required autoloader
+     * Load required classes manually to ensure they are available
+     *
+     * @return void
      */
-    private function loadAutoloader(): void
+    private function loadRequiredClasses(): void
     {
+        // Try autoloader first
         $autoloadPath = __DIR__ . '/../../vendor/autoload.php';
         if (file_exists($autoloadPath)) {
             require_once $autoloadPath;
+        }
+
+        // Manually load critical classes if not available
+        $classesToLoad = [
+            'PrestaShop\Module\PsCopia\VersionUtils' => '/../../classes/VersionUtils.php',
+            'PrestaShop\Module\PsCopia\BackupContainer' => '/../../classes/BackupContainer.php',
+            'PrestaShop\Module\PsCopia\Logger\BackupLogger' => '/../../classes/Logger/BackupLogger.php',
+            'PrestaShop\Module\PsCopia\Exceptions\UpgradeException' => '/../../classes/Exceptions/UpgradeException.php',
+        ];
+
+        foreach ($classesToLoad as $className => $filePath) {
+            if (!class_exists($className)) {
+                $fullPath = __DIR__ . $filePath;
+                if (file_exists($fullPath)) {
+                    require_once $fullPath;
+                }
+            }
         }
     }
 

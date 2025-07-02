@@ -67,11 +67,8 @@ class AdminPsCopiaController extends ModuleAdminController
         $this->bootstrap = true;
         parent::__construct();
         
-        // Load autoloader
-        $autoloadPath = __DIR__ . '/../../vendor/autoload.php';
-        if (file_exists($autoloadPath)) {
-            require_once $autoloadPath;
-        }
+        // Load required classes
+        $this->loadRequiredClasses();
 
         // Check PHP version compatibility
         if (!VersionUtils::isActualPHPVersionCompatible()) {
@@ -81,6 +78,36 @@ class AdminPsCopiaController extends ModuleAdminController
 
         $this->init();
         $this->db = Db::getInstance();
+    }
+
+    /**
+     * Load required classes manually to ensure they are available
+     *
+     * @return void
+     */
+    private function loadRequiredClasses(): void
+    {
+        // Try autoloader first
+        $autoloadPath = __DIR__ . '/../../vendor/autoload.php';
+        if (file_exists($autoloadPath)) {
+            require_once $autoloadPath;
+        }
+
+        // Manually load critical classes if not available
+        $classesToLoad = [
+            'PrestaShop\Module\PsCopia\VersionUtils' => '/../../classes/VersionUtils.php',
+            'PrestaShop\Module\PsCopia\BackupContainer' => '/../../classes/BackupContainer.php',
+            'PrestaShop\Module\PsCopia\Exceptions\UpgradeException' => '/../../classes/Exceptions/UpgradeException.php',
+        ];
+
+        foreach ($classesToLoad as $className => $filePath) {
+            if (!class_exists($className)) {
+                $fullPath = __DIR__ . $filePath;
+                if (file_exists($fullPath)) {
+                    require_once $fullPath;
+                }
+            }
+        }
     }
 
     /**
@@ -105,8 +132,10 @@ class AdminPsCopiaController extends ModuleAdminController
         }
 
         // Initialize backup container
-        $this->backupContainer = new BackupContainer(_PS_ROOT_DIR_, _PS_ADMIN_DIR_, 'ps_copia');
-        $this->backupContainer->initDirectories();
+        if (class_exists('PrestaShop\Module\PsCopia\BackupContainer')) {
+            $this->backupContainer = new BackupContainer(_PS_ROOT_DIR_, _PS_ADMIN_DIR_, 'ps_copia');
+            $this->backupContainer->initDirectories();
+        }
     }
 
     public function postProcess()
