@@ -567,24 +567,37 @@ class DatabaseMigrator
 
             $shopUrlTable = _DB_PREFIX_ . 'shop_url';
             if ($this->tableExists($shopUrlTable)) {
-                // Log current state before update
-                $currentData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
-                $this->logger->info("Current shop_url data before AGGRESSIVE update", $currentData ?: []);
+                // Log current state before update with error handling
+                try {
+                    $currentData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
+                    $this->logger->info("Current shop_url data before AGGRESSIVE update", $currentData ?: []);
+                } catch (Exception $e) {
+                    $this->logger->warning("Could not read current shop_url data: " . $e->getMessage());
+                }
                 
-                // Update domain, domain_ssl, and physical_uri
+                // Update domain, domain_ssl, and physical_uri with WHERE clause
                 $sql = "UPDATE `{$shopUrlTable}` SET 
                         `domain` = '" . pSQL($currentDomain) . "', 
                         `domain_ssl` = '" . pSQL($currentDomain) . "',
-                        `physical_uri` = '/'";
+                        `physical_uri` = '/' 
+                        WHERE `id_shop_url` > 0";
                 $result = $this->db->execute($sql);
                 
-                $this->logger->info("AGGRESSIVE update query executed with result: " . ($result ? 'SUCCESS' : 'FAILED'));
-                
-                // Log state after update
-                $newData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
-                $this->logger->info("New shop_url data after AGGRESSIVE update", $newData ?: []);
-                
-                $this->logger->info("AGGRESSIVELY updated shop_url table - domain: {$currentDomain}, physical_uri: /");
+                if ($result) {
+                    $this->logger->info("AGGRESSIVE update query executed successfully");
+                    
+                    // Log state after update with error handling
+                    try {
+                        $newData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
+                        $this->logger->info("New shop_url data after AGGRESSIVE update", $newData ?: []);
+                    } catch (Exception $e) {
+                        $this->logger->warning("Could not read updated shop_url data: " . $e->getMessage());
+                    }
+                    
+                    $this->logger->info("AGGRESSIVELY updated shop_url table - domain: {$currentDomain}, physical_uri: /");
+                } else {
+                    $this->logger->error("AGGRESSIVE update query failed to execute");
+                }
 
                 // Also update configuration keys PS_SHOP_DOMAIN and PS_SHOP_DOMAIN_SSL
                 $this->updateDomainConfiguration($currentDomain);
@@ -737,28 +750,56 @@ class DatabaseMigrator
                  return;
              }
 
-             // Log current state
-             $currentData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
-             $this->logger->info("Current shop_url data before force update", $currentData ?: []);
+             // Log current state with better error handling
+             try {
+                 $currentData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
+                 $this->logger->info("Current shop_url data before force update", $currentData ?: []);
+             } catch (Exception $e) {
+                 $this->logger->warning("Could not read current shop_url data: " . $e->getMessage());
+             }
 
-             // Update the shop_url table
+             // Update the shop_url table with improved SQL syntax
              $sql = "UPDATE `{$shopUrlTable}` SET 
                      `domain` = '" . pSQL($targetDomain) . "', 
                      `domain_ssl` = '" . pSQL($targetDomain) . "',
-                     `physical_uri` = '" . pSQL($targetPath) . "'";
+                     `physical_uri` = '" . pSQL($targetPath) . "' 
+                     WHERE `id_shop_url` > 0";
                      
              $result = $this->db->execute($sql);
              
-             $this->logger->info("Force update query executed with result: " . ($result ? 'SUCCESS' : 'FAILED'));
-             
-             // Log state after update
-             $newData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
-             $this->logger->info("New shop_url data after force update", $newData ?: []);
-             
-             $this->logger->info("Force updated shop_url table - domain: {$targetDomain}, physical_uri: {$targetPath}");
+             if ($result) {
+                 $this->logger->info("Force update query executed successfully");
+                 
+                 // Log state after update with better error handling
+                 try {
+                     $newData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
+                     $this->logger->info("New shop_url data after force update", $newData ?: []);
+                 } catch (Exception $e) {
+                     $this->logger->warning("Could not read updated shop_url data: " . $e->getMessage());
+                 }
+                 
+                 $this->logger->info("Force updated shop_url table - domain: {$targetDomain}, physical_uri: {$targetPath}");
+             } else {
+                 $this->logger->error("Force update query failed to execute");
+             }
 
          } catch (Exception $e) {
              $this->logger->error("Failed to force update shop_url table: " . $e->getMessage());
+             
+             // Try alternative approach with simpler SQL
+             try {
+                 $this->logger->info("Attempting alternative shop_url update approach");
+                 $simpleSql = "UPDATE `{$shopUrlTable}` SET domain = '" . pSQL($targetDomain) . "', domain_ssl = '" . pSQL($targetDomain) . "' WHERE id_shop_url = 1";
+                 $simpleResult = $this->db->execute($simpleSql);
+                 
+                 if ($simpleResult) {
+                     $this->logger->info("Alternative shop_url update succeeded");
+                 } else {
+                     $this->logger->error("Alternative shop_url update also failed");
+                 }
+             } catch (Exception $e2) {
+                 $this->logger->error("Alternative shop_url update threw exception: " . $e2->getMessage());
+             }
          }
      }
 
