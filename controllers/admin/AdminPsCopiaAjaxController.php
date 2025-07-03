@@ -161,6 +161,15 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                 case 'download_export':
                     $this->handleDownloadExport();
                     break;
+                case 'scan_server_uploads':
+                    $this->handleScanServerUploads();
+                    break;
+                case 'import_from_server':
+                    $this->handleImportFromServer();
+                    break;
+                case 'delete_server_upload':
+                    $this->handleDeleteServerUpload();
+                    break;
                 default:
                     $this->ajaxError('Unknown action: ' . $action);
             }
@@ -2556,5 +2565,367 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         }
         
         return $structure;
+    }
+
+    /**
+     * Handle scanning for uploaded ZIP files in server directory
+     */
+    private function handleScanServerUploads(): void
+    {
+        $this->logger->info("Scanning server uploads directory");
+
+        try {
+            $uploadsPath = $this->getServerUploadsPath();
+            $this->ensureUploadsDirectoryExists($uploadsPath);
+            
+            $zipFiles = $this->scanForZipFiles($uploadsPath);
+            
+            $this->ajaxSuccess('Escaneo completado', [
+                'uploads_path' => $uploadsPath,
+                'zip_files' => $zipFiles,
+                'count' => count($zipFiles)
+            ]);
+            
+        } catch (Exception $e) {
+            $this->logger->error("Server uploads scan failed: " . $e->getMessage());
+            $this->ajaxError($e->getMessage());
+        }
+    }
+
+    /**
+     * Handle importing ZIP from server uploads directory
+     */
+    private function handleImportFromServer(): void
+    {
+        $filename = Tools::getValue('filename');
+        
+        if (empty($filename)) {
+            $this->ajaxError("Nombre de archivo requerido");
+            return;
+        }
+
+        $this->logger->info("Importing backup from server uploads", ['filename' => $filename]);
+
+        try {
+            // Optimizar para operaciones grandes
+            $this->optimizeForLargeOperations();
+            
+            $uploadsPath = $this->getServerUploadsPath();
+            $zipPath = $uploadsPath . DIRECTORY_SEPARATOR . $filename;
+            
+            // Verificar que el archivo existe y es seguro
+            if (!$this->validateServerUploadFile($zipPath, $filename)) {
+                throw new Exception('Archivo no válido o no encontrado');
+            }
+            
+            // Verificar integridad del ZIP
+            if (!$this->verifyZipIntegrity($zipPath)) {
+                throw new Exception('El archivo ZIP está corrupto o dañado');
+            }
+            
+            $fileSize = filesize($zipPath);
+            $this->logger->info("Processing server upload", [
+                'filename' => $filename,
+                'size' => $this->formatBytes($fileSize)
+            ]);
+            
+            // Determinar si es un archivo grande
+            $isLargeFile = $fileSize > 100 * 1024 * 1024; // 100MB
+            
+            if ($isLargeFile) {
+                $this->logger->info("Large file detected, using streaming import");
+                $this->processLargeServerUpload($zipPath, $filename);
+            } else {
+                $this->processStandardServerUpload($zipPath, $filename);
+            }
+            
+        } catch (Exception $e) {
+            $this->logger->error("Server upload import failed: " . $e->getMessage());
+            $this->ajaxError($e->getMessage());
+        }
+    }
+
+    /**
+     * Handle deleting ZIP from server uploads directory
+     */
+    private function handleDeleteServerUpload(): void
+    {
+        $filename = Tools::getValue('filename');
+        
+        if (empty($filename)) {
+            $this->ajaxError("Nombre de archivo requerido");
+            return;
+        }
+
+        try {
+            $uploadsPath = $this->getServerUploadsPath();
+            $zipPath = $uploadsPath . DIRECTORY_SEPARATOR . $filename;
+            
+            if (!$this->validateServerUploadFile($zipPath, $filename)) {
+                throw new Exception('Archivo no válido o no encontrado');
+            }
+            
+            if (!@unlink($zipPath)) {
+                throw new Exception('No se pudo eliminar el archivo');
+            }
+            
+            $this->logger->info("Server upload deleted", ['filename' => $filename]);
+            $this->ajaxSuccess('Archivo eliminado correctamente');
+            
+        } catch (Exception $e) {
+            $this->logger->error("Server upload deletion failed: " . $e->getMessage());
+            $this->ajaxError($e->getMessage());
+        }
+    }
+
+    /**
+     * Get server uploads directory path
+     *
+     * @return string
+     */
+    private function getServerUploadsPath(): string
+    {
+        $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
+        return $backupDir . DIRECTORY_SEPARATOR . 'uploads';
+    }
+
+    /**
+     * Ensure uploads directory exists
+     *
+     * @param string $uploadsPath
+     * @throws Exception
+     */
+    private function ensureUploadsDirectoryExists(string $uploadsPath): void
+    {
+        if (!is_dir($uploadsPath)) {
+            if (!mkdir($uploadsPath, 0755, true)) {
+                throw new Exception('No se pudo crear el directorio de uploads: ' . $uploadsPath);
+            }
+            
+            // Crear archivo .htaccess para seguridad
+            $htaccessContent = "# Deny direct access to uploads\n";
+            $htaccessContent .= "Order Deny,Allow\n";
+            $htaccessContent .= "Deny from all\n";
+            $htaccessContent .= "# Allow only from admin\n";
+            $htaccessContent .= "<Files \"*.zip\">\n";
+            $htaccessContent .= "    Order Allow,Deny\n";
+            $htaccessContent .= "    Allow from all\n";
+            $htaccessContent .= "</Files>\n";
+            
+            file_put_contents($uploadsPath . DIRECTORY_SEPARATOR . '.htaccess', $htaccessContent);
+            
+            // Crear archivo index.php para evitar listado de directorio
+            $indexContent = "<?php\n// Directory listing disabled\nheader('HTTP/1.0 403 Forbidden');\nexit;\n";
+            file_put_contents($uploadsPath . DIRECTORY_SEPARATOR . 'index.php', $indexContent);
+        }
+    }
+
+    /**
+     * Scan for ZIP files in uploads directory
+     *
+     * @param string $uploadsPath
+     * @return array
+     */
+    private function scanForZipFiles(string $uploadsPath): array
+    {
+        $zipFiles = [];
+        
+        if (!is_dir($uploadsPath)) {
+            return $zipFiles;
+        }
+        
+        $files = scandir($uploadsPath);
+        if (!$files) {
+            return $zipFiles;
+        }
+        
+        foreach ($files as $file) {
+            if ($file === '.' || $file === '..' || $file === '.htaccess' || $file === 'index.php') {
+                continue;
+            }
+            
+            $filePath = $uploadsPath . DIRECTORY_SEPARATOR . $file;
+            
+            if (is_file($filePath) && strtolower(pathinfo($file, PATHINFO_EXTENSION)) === 'zip') {
+                $fileSize = filesize($filePath);
+                $fileTime = filemtime($filePath);
+                
+                // Verificar si es un backup válido revisando la estructura básica
+                $isValidBackup = $this->quickValidateBackupZip($filePath);
+                
+                $zipFiles[] = [
+                    'filename' => $file,
+                    'size' => $fileSize,
+                    'size_formatted' => $this->formatBytes($fileSize),
+                    'modified' => date('Y-m-d H:i:s', $fileTime),
+                    'is_large' => $fileSize > 100 * 1024 * 1024,
+                    'is_valid_backup' => $isValidBackup,
+                    'path' => $filePath
+                ];
+            }
+        }
+        
+        // Ordenar por fecha de modificación (más recientes primero)
+        usort($zipFiles, function($a, $b) {
+            return strcmp($b['modified'], $a['modified']);
+        });
+        
+        return $zipFiles;
+    }
+
+    /**
+     * Quick validation of backup ZIP structure without full extraction
+     *
+     * @param string $zipPath
+     * @return bool
+     */
+    private function quickValidateBackupZip(string $zipPath): bool
+    {
+        try {
+            $zip = new ZipArchive();
+            $result = $zip->open($zipPath);
+            
+            if ($result !== TRUE) {
+                return false;
+            }
+            
+            // Verificar que tiene la estructura básica de backup
+            $hasInfo = $zip->locateName('backup_info.json') !== false;
+            $hasDatabase = false;
+            $hasFiles = false;
+            
+            // Revisar solo los primeros archivos para ser eficiente
+            $maxCheck = min($zip->numFiles, 20);
+            for ($i = 0; $i < $maxCheck; $i++) {
+                $filename = $zip->getNameIndex($i);
+                if (strpos($filename, 'database/') === 0) {
+                    $hasDatabase = true;
+                }
+                if (strpos($filename, 'files/') === 0) {
+                    $hasFiles = true;
+                }
+                
+                // Salir temprano si encontramos todo
+                if ($hasInfo && $hasDatabase && $hasFiles) {
+                    break;
+                }
+            }
+            
+            $zip->close();
+            return $hasInfo && ($hasDatabase || $hasFiles); // Al menos backup_info y uno de los tipos
+            
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Validate server upload file for security
+     *
+     * @param string $zipPath
+     * @param string $filename
+     * @return bool
+     */
+    private function validateServerUploadFile(string $zipPath, string $filename): bool
+    {
+        // Verificar que el archivo existe
+        if (!file_exists($zipPath)) {
+            return false;
+        }
+        
+        // Verificar que está dentro del directorio de uploads (prevenir path traversal)
+        $uploadsPath = $this->getServerUploadsPath();
+        $realZipPath = realpath($zipPath);
+        $realUploadsPath = realpath($uploadsPath);
+        
+        if (!$realZipPath || !$realUploadsPath || strpos($realZipPath, $realUploadsPath) !== 0) {
+            return false;
+        }
+        
+        // Verificar extensión
+        if (strtolower(pathinfo($filename, PATHINFO_EXTENSION)) !== 'zip') {
+            return false;
+        }
+        
+        // Verificar que es un archivo legible
+        if (!is_readable($zipPath)) {
+            return false;
+        }
+        
+        return true;
+    }
+
+    /**
+     * Process standard server upload for smaller files
+     *
+     * @param string $zipPath
+     * @param string $originalFilename
+     * @throws Exception
+     */
+    private function processStandardServerUpload(string $zipPath, string $originalFilename): void
+    {
+        $zip = new ZipArchive();
+        $result = $zip->open($zipPath);
+        
+        if ($result !== TRUE) {
+            throw new Exception('No se pudo abrir el archivo ZIP: ' . $this->getZipError($result));
+        }
+        
+        try {
+            // Verificar estructura del backup
+            if (!$this->validateBackupStructure($zip)) {
+                throw new Exception('El archivo ZIP no tiene la estructura correcta de backup');
+            }
+            
+            // Leer metadata
+            $backupInfo = $this->extractBackupInfo($zip);
+            
+            // Generar nuevo nombre único
+            $timestamp = date('Y-m-d_H-i-s');
+            $newBackupName = 'server_backup_' . $timestamp;
+            
+            // Extraer archivos usando método estándar
+            $this->extractBackupStandard($zip, $newBackupName, $originalFilename, $backupInfo);
+            
+        } finally {
+            $zip->close();
+        }
+    }
+
+    /**
+     * Process large server upload using streaming
+     *
+     * @param string $zipPath
+     * @param string $originalFilename
+     * @throws Exception
+     */
+    private function processLargeServerUpload(string $zipPath, string $originalFilename): void
+    {
+        $zip = new ZipArchive();
+        $result = $zip->open($zipPath);
+        
+        if ($result !== TRUE) {
+            throw new Exception('No se pudo abrir el archivo ZIP: ' . $this->getZipError($result));
+        }
+        
+        try {
+            // Verificar estructura del backup
+            if (!$this->validateBackupStructure($zip)) {
+                throw new Exception('El archivo ZIP no tiene la estructura correcta de backup');
+            }
+            
+            // Leer metadata
+            $backupInfo = $this->extractBackupInfo($zip);
+            
+            // Generar nuevo nombre único
+            $timestamp = date('Y-m-d_H-i-s');
+            $newBackupName = 'server_backup_' . $timestamp;
+            
+            // Extraer usando streaming para archivos grandes
+            $this->extractBackupStreaming($zip, $newBackupName, $originalFilename, $backupInfo);
+            
+        } finally {
+            $zip->close();
+        }
     }
 }

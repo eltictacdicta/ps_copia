@@ -64,9 +64,13 @@
                     <div class="panel-body text-center">
                         <p>Sube un archivo ZIP de backup exportado para poder restaurarlo.</p>
                         <div class="btn-group-vertical" style="width: 100%;">
-                            <button id="uploadBackupBtn" class="btn btn-lg btn-warning" style="margin-bottom: 10px;">
+                            <button id="uploadBackupBtn" class="btn btn-lg btn-warning" style="margin-bottom: 8px;">
                                 <i class="icon-upload"></i>
                                 Subir Backup Simple
+                            </button>
+                            <button id="serverUploadsBtn" class="btn btn-lg btn-info" style="margin-bottom: 8px;">
+                                <i class="icon-hdd"></i>
+                                Importar desde Servidor
                             </button>
                             <button id="uploadWithMigrationDirectBtn" class="btn btn-lg btn-primary">
                                 <i class="icon-magic"></i>
@@ -74,7 +78,8 @@
                             </button>
                         </div>
                         <small class="help-block" style="margin-top: 10px;">
-                            <strong>Migración:</strong> Cambia URLs y configuraciones automáticamente
+                            <strong>Migración:</strong> Cambia URLs y configuraciones automáticamente<br>
+                            <strong>Servidor:</strong> Para archivos grandes subidos por FTP/SFTP
                         </small>
                     </div>
                 </div>
@@ -1197,4 +1202,280 @@ $(document).ready(function() {
     });
 });
 {/literal}
-</script> 
+</script>
+
+<!-- Modal para uploads del servidor -->
+<div class="modal fade" id="serverUploadsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">
+                    <i class="icon-hdd text-info"></i>
+                    Importar desde Servidor
+                </h4>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <strong><i class="icon-info-circle"></i> ¿Cómo funciona?</strong><br>
+                    Esta función escanea la carpeta <code>/modules/ps_copia/backups/uploads/</code> en busca de archivos ZIP subidos directamente al servidor mediante FTP/SFTP.
+                </div>
+                
+                <div class="well well-sm">
+                    <strong><i class="icon-lightbulb-o"></i> Para archivos grandes:</strong>
+                    <ol style="margin: 5px 0;">
+                        <li>Sube tu archivo ZIP mediante FTP/SFTP a la carpeta <code>uploads/</code></li>
+                        <li>Usa el botón "Escanear" para detectar archivos</li>
+                        <li>Selecciona e importa el archivo deseado</li>
+                    </ol>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <button id="scanServerUploadsBtn" class="btn btn-info btn-block">
+                            <i class="icon-search"></i> Escanear Archivos
+                        </button>
+                    </div>
+                    <div class="col-md-6">
+                        <p class="text-muted"><small>Ruta: <span id="uploads-path-display">-</span></small></p>
+                    </div>
+                </div>
+
+                <hr>
+
+                <div id="server-uploads-list">
+                    <p class="text-center text-muted">Haz clic en "Escanear Archivos" para ver los uploads disponibles.</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{literal}
+<script>
+$(document).ready(function() {
+    // Manejar botón de uploads del servidor
+    $('#serverUploadsBtn').on('click', function() {
+        $('#serverUploadsModal').modal('show');
+    });
+
+    // Manejar escaneo de uploads del servidor
+    $('#scanServerUploadsBtn').on('click', function() {
+        var $btn = $(this);
+        $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Escaneando...');
+        
+        $.ajax({
+            url: ajaxUrl,
+            type: 'POST',
+            dataType: 'json',
+            data: {
+                action: 'scan_server_uploads',
+                ajax: true,
+{/literal}
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+{literal}
+            },
+            success: function(response) {
+                if (response && response.success) {
+                    $('#uploads-path-display').text(response.data.uploads_path);
+                    displayServerUploads(response.data.zip_files);
+                } else {
+                    $('#server-uploads-list').html('<div class="alert alert-warning">Error: ' + (response.error || 'Error desconocido') + '</div>');
+                }
+            },
+            error: function(xhr, status, error) {
+                var errorMessage = 'Error de comunicación con el servidor';
+                if (xhr.responseText) {
+                    try {
+                        var response = JSON.parse(xhr.responseText);
+                        errorMessage = response.error || errorMessage;
+                    } catch (e) {
+                        errorMessage += ': ' + xhr.responseText.substring(0, 200);
+                    }
+                }
+                $('#server-uploads-list').html('<div class="alert alert-danger">Error: ' + errorMessage + '</div>');
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html('<i class="icon-search"></i> Escanear Archivos');
+            }
+        });
+    });
+
+    function displayServerUploads(uploads) {
+        if (uploads.length === 0) {
+            $('#server-uploads-list').html('<div class="alert alert-info"><i class="icon-info-circle"></i> No se encontraron archivos ZIP en el directorio de uploads.</div>');
+            return;
+        }
+
+        var html = '<div class="table-responsive"><table class="table table-striped">';
+        html += '<thead><tr>';
+        html += '<th><i class="icon-file"></i> Archivo</th>';
+        html += '<th><i class="icon-calendar"></i> Modificado</th>';
+        html += '<th><i class="icon-hdd"></i> Tamaño</th>';
+        html += '<th><i class="icon-check"></i> Válido</th>';
+        html += '<th><i class="icon-cogs"></i> Acciones</th>';
+        html += '</tr></thead><tbody>';
+
+        uploads.forEach(function(upload) {
+            var validIcon = upload.is_valid_backup ? 
+                '<i class="icon-check text-success"></i> Válido' : 
+                '<i class="icon-remove text-danger"></i> No válido';
+            
+            var sizeClass = upload.is_large ? 'text-warning' : 'text-muted';
+            var sizeIcon = upload.is_large ? '<i class="icon-warning-sign"></i> ' : '';
+            
+            html += '<tr>';
+            html += '<td><i class="icon-file-archive-o"></i> ' + upload.filename + '</td>';
+            html += '<td>' + upload.modified + '</td>';
+            html += '<td class="' + sizeClass + '">' + sizeIcon + upload.size_formatted + '</td>';
+            html += '<td>' + validIcon + '</td>';
+            html += '<td>';
+            
+            if (upload.is_valid_backup) {
+                html += '<div class="btn-group">';
+                html += '<button class="btn btn-sm btn-success import-server-upload-btn" ';
+                html += 'data-filename="' + upload.filename + '">';
+                html += '<i class="icon-download"></i> Importar';
+                html += '</button>';
+                html += '<button class="btn btn-sm btn-danger delete-server-upload-btn" ';
+                html += 'data-filename="' + upload.filename + '">';
+                html += '<i class="icon-trash"></i> Eliminar';
+                html += '</button>';
+                html += '</div>';
+            } else {
+                html += '<button class="btn btn-sm btn-danger delete-server-upload-btn" ';
+                html += 'data-filename="' + upload.filename + '">';
+                html += '<i class="icon-trash"></i> Eliminar';
+                html += '</button>';
+            }
+            
+            html += '</td>';
+            html += '</tr>';
+        });
+
+        html += '</tbody></table></div>';
+        $('#server-uploads-list').html(html);
+    }
+
+    // Manejar importación desde servidor
+    $(document).on('click', '.import-server-upload-btn', function() {
+        var $btn = $(this);
+        var filename = $btn.data('filename');
+        
+        if (!confirm('¿Importar el archivo "' + filename + '" como backup?\n\nEsto añadirá el backup a tu lista de backups disponibles.')) {
+            return;
+        }
+        
+        $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Importando...');
+        
+        $.ajax({
+            url: ajaxUrl,
+            type: 'POST',
+            dataType: 'json',
+            timeout: 1800000, // 30 minutos para archivos grandes
+            data: {
+                action: 'import_from_server',
+                filename: filename,
+                ajax: true,
+{/literal}
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+{literal}
+            },
+            success: function(response) {
+                if (response && response.success) {
+                    $('#serverUploadsModal').modal('hide');
+                    
+                    // Mostrar mensaje de éxito
+                    var alertHtml = '<div class="alert alert-success alert-dismissible" role="alert">';
+                    alertHtml += '<button type="button" class="close" data-dismiss="alert" aria-label="Close">';
+                    alertHtml += '<span aria-hidden="true">&times;</span></button>';
+                    alertHtml += '<i class="icon-check"></i> <strong>¡Éxito!</strong> ' + response.message;
+                    alertHtml += '</div>';
+                    
+                    $('#ps-copia-content').prepend(alertHtml);
+                    
+                    // Recargar lista de backups
+                    loadBackupsList();
+                    
+                    // Scroll al mensaje
+                    $('html, body').animate({
+                        scrollTop: $('#ps-copia-content').offset().top - 50
+                    }, 500);
+                    
+                } else {
+                    alert('Error: ' + (response.error || 'Error desconocido'));
+                }
+            },
+            error: function(xhr, status, error) {
+                var errorMessage = 'Error de comunicación con el servidor';
+                if (status === 'timeout') {
+                    errorMessage = 'La operación tardó demasiado tiempo. Para archivos muy grandes, verifica si la importación se completó revisando la lista de backups.';
+                } else if (xhr.responseText) {
+                    try {
+                        var response = JSON.parse(xhr.responseText);
+                        errorMessage = response.error || errorMessage;
+                    } catch (e) {
+                        errorMessage += ': ' + xhr.responseText.substring(0, 200);
+                    }
+                }
+                alert('Error: ' + errorMessage);
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html('<i class="icon-download"></i> Importar');
+            }
+        });
+    });
+
+    // Manejar eliminación de archivo del servidor
+    $(document).on('click', '.delete-server-upload-btn', function() {
+        var $btn = $(this);
+        var filename = $btn.data('filename');
+        
+        if (!confirm('¿Eliminar el archivo "' + filename + '" del servidor?\n\nEsta acción no se puede deshacer.')) {
+            return;
+        }
+        
+        $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Eliminando...');
+        
+        $.ajax({
+            url: ajaxUrl,
+            type: 'POST',
+            dataType: 'json',
+            data: {
+                action: 'delete_server_upload',
+                filename: filename,
+                ajax: true,
+{/literal}
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+{literal}
+            },
+            success: function(response) {
+                if (response && response.success) {
+                    // Volver a escanear para actualizar la lista
+                    $('#scanServerUploadsBtn').click();
+                } else {
+                    alert('Error: ' + (response.error || 'Error desconocido'));
+                    $btn.prop('disabled', false).html('<i class="icon-trash"></i> Eliminar');
+                }
+            },
+            error: function(xhr, status, error) {
+                var errorMessage = 'Error de comunicación con el servidor';
+                if (xhr.responseText) {
+                    try {
+                        var response = JSON.parse(xhr.responseText);
+                        errorMessage = response.error || errorMessage;
+                    } catch (e) {
+                        errorMessage += ': ' + xhr.responseText.substring(0, 200);
+                    }
+                }
+                alert('Error: ' + errorMessage);
+                $btn.prop('disabled', false).html('<i class="icon-trash"></i> Eliminar');
+            }
+        });
+    });
+});
+</script>
+{/literal} 
