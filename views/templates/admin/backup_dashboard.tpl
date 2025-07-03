@@ -1270,10 +1270,35 @@ $(document).ready(function() {
         var $btn = $(this);
         $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Escaneando...');
         
-        $.ajax({
+        // Mostrar mensaje de progreso con opción de cancelar
+        var progressHtml = '<div class="alert alert-info">';
+        progressHtml += '<i class="icon-info-circle"></i> <strong>Escaneando directorio...</strong> ';
+        progressHtml += 'Esto puede tardar unos segundos para archivos grandes.<br><br>';
+        progressHtml += '<button id="cancelScanBtn" class="btn btn-warning btn-xs">';
+        progressHtml += '<i class="icon-times"></i> Cancelar Escaneo';
+        progressHtml += '</button>';
+        progressHtml += '</div>';
+        $('#server-uploads-list').html(progressHtml);
+        
+        // Timeout progresivo - empezar con 30s, luego extender si es necesario
+        var startTime = Date.now();
+        var initialTimeout = 30000; // 30 segundos inicial
+        var extendedTimeout = 120000; // 2 minutos extendido
+        
+        // Manejar cancelación del escaneo
+        $('#cancelScanBtn').on('click', function() {
+            if (scanRequest && scanRequest.readyState !== 4) {
+                scanRequest.abort();
+                $('#server-uploads-list').html('<div class="alert alert-warning"><i class="icon-hand-paper-o"></i> <strong>Escaneo cancelado</strong> por el usuario.</div>');
+                $btn.prop('disabled', false).html('<i class="icon-search"></i> Escanear Archivos');
+            }
+        });
+        
+        var scanRequest = $.ajax({
             url: ajaxUrl,
             type: 'POST',
             dataType: 'json',
+            timeout: initialTimeout,
             data: {
                 action: 'scan_server_uploads',
                 ajax: true,
@@ -1282,16 +1307,109 @@ $(document).ready(function() {
 {literal}
             },
             success: function(response) {
+                var elapsed = (Date.now() - startTime) / 1000;
+                console.log('Scan completed in', elapsed + 's');
+                
                 if (response && response.success) {
                     $('#uploads-path-display').text(response.data.uploads_path);
+                    
+                    // Mostrar información adicional si está disponible
+                    if (response.data.scan_duration) {
+                        console.log('Server scan duration:', response.data.scan_duration + 's');
+                    }
+                    
                     displayServerUploads(response.data.zip_files);
+                    
+                    // Mostrar mensaje informativo si no hay archivos
+                    if (response.data.count === 0) {
+                        var infoHtml = '<div class="alert alert-info">';
+                        infoHtml += '<i class="icon-info-circle"></i> ';
+                        infoHtml += '<strong>No se encontraron archivos ZIP.</strong><br>';
+                        infoHtml += response.data.message || 'Sube archivos ZIP mediante FTP/SFTP al directorio mostrado arriba.';
+                        infoHtml += '</div>';
+                        $('#server-uploads-list').append(infoHtml);
+                    }
+                    
                 } else {
-                    $('#server-uploads-list').html('<div class="alert alert-warning">Error: ' + (response.error || 'Error desconocido') + '</div>');
+                    var errorMsg = response.error || 'Error desconocido durante el escaneo';
+                    $('#server-uploads-list').html('<div class="alert alert-warning"><i class="icon-warning-sign"></i> <strong>Error:</strong> ' + errorMsg + '</div>');
                 }
             },
             error: function(xhr, status, error) {
+                var elapsed = (Date.now() - startTime) / 1000;
+                console.log('Scan failed after', elapsed + 's', 'Status:', status);
+                
                 var errorMessage = 'Error de comunicación con el servidor';
-                if (xhr.responseText) {
+                
+                // Manejar cancelación por parte del usuario
+                if (status === 'abort') {
+                    // Ya manejado por el botón cancelar, no hacer nada más
+                    return;
+                }
+                
+                if (status === 'timeout') {
+                    // Si fue timeout en el primer intento, ofrecer reintentar con más tiempo
+                    if (elapsed < 35) { // Fue el timeout inicial
+                        errorMessage = 'El escaneo tardó más de lo esperado. Esto puede ocurrir con archivos muy grandes o corruptos.';
+                        
+                        var retryHtml = '<div class="alert alert-warning">';
+                        retryHtml += '<i class="icon-clock-o"></i> <strong>Timeout de escaneo:</strong> ' + errorMessage + '<br><br>';
+                        retryHtml += '<button id="retryScanBtn" class="btn btn-warning btn-sm">';
+                        retryHtml += '<i class="icon-refresh"></i> Reintentar con más tiempo (2 min)';
+                        retryHtml += '</button>';
+                        retryHtml += '</div>';
+                        
+                        $('#server-uploads-list').html(retryHtml);
+                        
+                        // Manejar reintento con timeout extendido
+                        $('#retryScanBtn').on('click', function() {
+                            $(this).prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Reintentando...');
+                            $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Escaneando (extendido)...');
+                            
+                            $('#server-uploads-list').html('<div class="alert alert-info"><i class="icon-info-circle"></i> <strong>Reintentando escaneo con timeout extendido...</strong> Por favor espera hasta 2 minutos.</div>');
+                            
+                            $.ajax({
+                                url: ajaxUrl,
+                                type: 'POST',
+                                dataType: 'json',
+                                timeout: extendedTimeout,
+                                data: {
+                                    action: 'scan_server_uploads',
+                                    ajax: true,
+{/literal}
+                                    token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+{literal}
+                                },
+                                success: function(response) {
+                                    if (response && response.success) {
+                                        displayServerUploads(response.data.zip_files);
+                                        $('#uploads-path-display').text(response.data.uploads_path);
+                                    } else {
+                                        $('#server-uploads-list').html('<div class="alert alert-danger">Error en reintento: ' + (response.error || 'Error desconocido') + '</div>');
+                                    }
+                                },
+                                error: function(xhr2, status2, error2) {
+                                    var finalError = 'Error persistente de comunicación';
+                                    if (status2 === 'timeout') {
+                                        finalError = 'El escaneo sigue tardando demasiado. Posibles causas:<br>';
+                                        finalError += '• Archivos ZIP muy grandes o corruptos<br>';
+                                        finalError += '• Problemas de rendimiento del servidor<br>';
+                                        finalError += '• Límites de tiempo del servidor<br><br>';
+                                        finalError += 'Recomendación: Verifica manualmente los archivos en el servidor.';
+                                    }
+                                    $('#server-uploads-list').html('<div class="alert alert-danger"><i class="icon-exclamation-triangle"></i> <strong>Error persistente:</strong> ' + finalError + '</div>');
+                                },
+                                complete: function() {
+                                    $btn.prop('disabled', false).html('<i class="icon-search"></i> Escanear Archivos');
+                                }
+                            });
+                        });
+                        
+                        return;
+                    } else {
+                        errorMessage = 'Timeout extendido alcanzado. El servidor puede estar sobrecargado o hay archivos problemáticos.';
+                    }
+                } else if (xhr.responseText) {
                     try {
                         var response = JSON.parse(xhr.responseText);
                         errorMessage = response.error || errorMessage;
@@ -1299,7 +1417,8 @@ $(document).ready(function() {
                         errorMessage += ': ' + xhr.responseText.substring(0, 200);
                     }
                 }
-                $('#server-uploads-list').html('<div class="alert alert-danger">Error: ' + errorMessage + '</div>');
+                
+                $('#server-uploads-list').html('<div class="alert alert-danger"><i class="icon-exclamation-triangle"></i> <strong>Error:</strong> ' + errorMessage + '</div>');
             },
             complete: function() {
                 $btn.prop('disabled', false).html('<i class="icon-search"></i> Escanear Archivos');

@@ -21,9 +21,6 @@
 use PrestaShop\Module\PsCopia\BackupContainer;
 use PrestaShop\Module\PsCopia\Logger\BackupLogger;
 use PrestaShop\Module\PsCopia\VersionUtils;
-use RecursiveIteratorIterator;
-use RecursiveDirectoryIterator;
-use ZipArchive;
 
 class AdminPsCopiaAjaxController extends ModuleAdminController
 {
@@ -2572,23 +2569,65 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
      */
     private function handleScanServerUploads(): void
     {
-        $this->logger->info("Scanning server uploads directory");
+        // Configurar timeout generoso para el escaneo
+        $oldTimeLimit = ini_get('max_execution_time');
+        set_time_limit(120); // 2 minutos máximo para escaneo
+        
+        $this->logger->info("Starting server uploads directory scan");
+        $startTime = microtime(true);
 
         try {
+            // Optimizar para operaciones potencialmente largas
+            $this->optimizeForLargeOperations();
+            
             $uploadsPath = $this->getServerUploadsPath();
             $this->ensureUploadsDirectoryExists($uploadsPath);
             
+            $this->logger->info("Uploads directory confirmed", ['path' => $uploadsPath]);
+            
             $zipFiles = $this->scanForZipFiles($uploadsPath);
             
-            $this->ajaxSuccess('Escaneo completado', [
-                'uploads_path' => $uploadsPath,
-                'zip_files' => $zipFiles,
-                'count' => count($zipFiles)
+            $elapsed = microtime(true) - $startTime;
+            $this->logger->info("Scan operation completed", [
+                'duration' => round($elapsed, 2) . 's',
+                'files_found' => count($zipFiles)
             ]);
             
+            // Agregar información adicional para debugging
+            $response = [
+                'uploads_path' => $uploadsPath,
+                'zip_files' => $zipFiles,
+                'count' => count($zipFiles),
+                'scan_duration' => round($elapsed, 2),
+                'scan_time' => date('Y-m-d H:i:s')
+            ];
+            
+            // Si no se encontraron archivos, dar más información
+            if (empty($zipFiles)) {
+                $response['message'] = 'No se encontraron archivos ZIP en el directorio. Sube archivos mediante FTP/SFTP a: ' . $uploadsPath;
+                $this->logger->info("No ZIP files found in uploads directory");
+            } else {
+                $validCount = count(array_filter($zipFiles, function($file) {
+                    return $file['is_valid_backup'] ?? false;
+                }));
+                $response['valid_backups'] = $validCount;
+                $this->logger->info("Valid backup files found", ['count' => $validCount]);
+            }
+            
+            $this->ajaxSuccess('Escaneo completado', $response);
+            
         } catch (Exception $e) {
-            $this->logger->error("Server uploads scan failed: " . $e->getMessage());
-            $this->ajaxError($e->getMessage());
+            $elapsed = microtime(true) - $startTime;
+            $this->logger->error("Server uploads scan failed", [
+                'error' => $e->getMessage(),
+                'duration' => round($elapsed, 2) . 's',
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            $this->ajaxError('Error durante el escaneo: ' . $e->getMessage());
+        } finally {
+            // Restaurar timeout original
+            set_time_limit((int)$oldTimeLimit);
         }
     }
 
@@ -2747,44 +2786,128 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         $zipFiles = [];
         
         if (!is_dir($uploadsPath)) {
+            $this->logger->debug("Uploads directory does not exist", ['path' => $uploadsPath]);
             return $zipFiles;
         }
         
-        $files = scandir($uploadsPath);
-        if (!$files) {
-            return $zipFiles;
-        }
-        
-        foreach ($files as $file) {
-            if ($file === '.' || $file === '..' || $file === '.htaccess' || $file === 'index.php') {
-                continue;
+        try {
+            $files = scandir($uploadsPath);
+            if (!$files) {
+                $this->logger->warning("Cannot scan uploads directory", ['path' => $uploadsPath]);
+                return $zipFiles;
             }
             
-            $filePath = $uploadsPath . DIRECTORY_SEPARATOR . $file;
+            $this->logger->info("Scanning uploads directory", [
+                'path' => $uploadsPath,
+                'total_items' => count($files) - 2 // Excluir . y ..
+            ]);
             
-            if (is_file($filePath) && strtolower(pathinfo($file, PATHINFO_EXTENSION)) === 'zip') {
-                $fileSize = filesize($filePath);
-                $fileTime = filemtime($filePath);
+            $processedCount = 0;
+            $validCount = 0;
+            
+            foreach ($files as $file) {
+                if ($file === '.' || $file === '..' || $file === '.htaccess' || $file === 'index.php') {
+                    continue;
+                }
                 
-                // Verificar si es un backup válido revisando la estructura básica
-                $isValidBackup = $this->quickValidateBackupZip($filePath);
+                $filePath = $uploadsPath . DIRECTORY_SEPARATOR . $file;
                 
-                $zipFiles[] = [
-                    'filename' => $file,
-                    'size' => $fileSize,
-                    'size_formatted' => $this->formatBytes($fileSize),
-                    'modified' => date('Y-m-d H:i:s', $fileTime),
-                    'is_large' => $fileSize > 100 * 1024 * 1024,
-                    'is_valid_backup' => $isValidBackup,
-                    'path' => $filePath
-                ];
+                if (!is_file($filePath)) {
+                    continue;
+                }
+                
+                // Verificar extensión ZIP
+                if (strtolower(pathinfo($file, PATHINFO_EXTENSION)) !== 'zip') {
+                    $this->logger->debug("Skipping non-ZIP file", ['file' => $file]);
+                    continue;
+                }
+                
+                $processedCount++;
+                
+                try {
+                    $fileSize = filesize($filePath);
+                    $fileTime = filemtime($filePath);
+                    
+                    if ($fileSize === false || $fileTime === false) {
+                        $this->logger->warning("Cannot get file info", ['file' => $file]);
+                        continue;
+                    }
+                    
+                    $this->logger->debug("Processing ZIP file", [
+                        'file' => $file,
+                        'size' => $this->formatBytes($fileSize)
+                    ]);
+                    
+                    // Verificar si es un backup válido revisando la estructura básica
+                    // Usar try-catch específico para la validación
+                    $isValidBackup = false;
+                    try {
+                        $isValidBackup = $this->quickValidateBackupZip($filePath);
+                        if ($isValidBackup) {
+                            $validCount++;
+                        }
+                    } catch (Exception $e) {
+                        $this->logger->warning("Validation failed for ZIP file", [
+                            'file' => $file,
+                            'error' => $e->getMessage()
+                        ]);
+                        $isValidBackup = false;
+                    }
+                    
+                    $zipFiles[] = [
+                        'filename' => $file,
+                        'size' => $fileSize,
+                        'size_formatted' => $this->formatBytes($fileSize),
+                        'modified' => date('Y-m-d H:i:s', $fileTime),
+                        'is_large' => $fileSize > 100 * 1024 * 1024,
+                        'is_valid_backup' => $isValidBackup,
+                        'path' => $filePath,
+                        'status' => $isValidBackup ? 'valid' : 'invalid'
+                    ];
+                    
+                } catch (Exception $e) {
+                    $this->logger->warning("Error processing ZIP file", [
+                        'file' => $file,
+                        'error' => $e->getMessage()
+                    ]);
+                    
+                    // Añadir el archivo con información limitada
+                    $zipFiles[] = [
+                        'filename' => $file,
+                        'size' => 0,
+                        'size_formatted' => 'Error',
+                        'modified' => 'Error',
+                        'is_large' => false,
+                        'is_valid_backup' => false,
+                        'path' => $filePath,
+                        'status' => 'error',
+                        'error' => $e->getMessage()
+                    ];
+                }
             }
+            
+            // Ordenar por fecha de modificación (más recientes primero)
+            usort($zipFiles, function($a, $b) {
+                // Los archivos con error van al final
+                if (isset($a['error']) && !isset($b['error'])) return 1;
+                if (!isset($a['error']) && isset($b['error'])) return -1;
+                
+                // Ordenar por fecha
+                return strcmp($b['modified'], $a['modified']);
+            });
+            
+            $this->logger->info("Scan completed", [
+                'total_processed' => $processedCount,
+                'valid_backups' => $validCount,
+                'total_results' => count($zipFiles)
+            ]);
+            
+        } catch (Exception $e) {
+            $this->logger->error("Error during directory scan", [
+                'path' => $uploadsPath,
+                'error' => $e->getMessage()
+            ]);
         }
-        
-        // Ordenar por fecha de modificación (más recientes primero)
-        usort($zipFiles, function($a, $b) {
-            return strcmp($b['modified'], $a['modified']);
-        });
         
         return $zipFiles;
     }
@@ -2797,41 +2920,134 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
      */
     private function quickValidateBackupZip(string $zipPath): bool
     {
+        // Configurar timeout para evitar que se cuelgue
+        $oldTimeLimit = ini_get('max_execution_time');
+        set_time_limit(15); // Máximo 15 segundos para validación
+        
         try {
+            // Verificaciones previas básicas
+            if (!is_readable($zipPath)) {
+                return false;
+            }
+            
+            // Verificar tamaño mínimo (un ZIP válido debe tener al menos algunos KB)
+            $fileSize = filesize($zipPath);
+            if ($fileSize < 1024) { // Menos de 1KB es sospechoso
+                return false;
+            }
+            
+            // Para archivos grandes, ser más conservador
+            if ($fileSize > 100 * 1024 * 1024) { // Más de 100MB
+                $this->logger->debug("Large ZIP file detected, skipping deep validation", [
+                    'file' => basename($zipPath),
+                    'size' => $this->formatBytes($fileSize)
+                ]);
+                return true; // Asumir que es válido para archivos grandes
+            }
+            
+            // Para archivos medianos (10MB+), usar validación rápida
+            if ($fileSize > 10 * 1024 * 1024) { // Más de 10MB
+                $this->logger->debug("Medium ZIP file detected, using quick validation", [
+                    'file' => basename($zipPath),
+                    'size' => $this->formatBytes($fileSize)
+                ]);
+                
+                // Solo verificar que se puede abrir y tiene backup_info.json
+                $zip = new ZipArchive();
+                $result = $zip->open($zipPath, ZipArchive::RDONLY);
+                
+                if ($result !== TRUE) {
+                    return false;
+                }
+                
+                $hasInfo = $zip->locateName('backup_info.json') !== false;
+                $zip->close();
+                
+                return $hasInfo;
+            }
+            
             $zip = new ZipArchive();
-            $result = $zip->open($zipPath);
+            $result = $zip->open($zipPath, ZipArchive::RDONLY);
             
             if ($result !== TRUE) {
+                $this->logger->debug("ZIP open failed", [
+                    'file' => basename($zipPath),
+                    'error' => $this->getZipError($result)
+                ]);
+                return false;
+            }
+            
+            // Verificaciones de seguridad básicas
+            if ($zip->numFiles === 0) {
+                $zip->close();
                 return false;
             }
             
             // Verificar que tiene la estructura básica de backup
-            $hasInfo = $zip->locateName('backup_info.json') !== false;
+            $hasInfo = false;
             $hasDatabase = false;
             $hasFiles = false;
             
-            // Revisar solo los primeros archivos para ser eficiente
-            $maxCheck = min($zip->numFiles, 20);
+            // Revisar solo los primeros archivos para ser eficiente y evitar timeouts
+            $maxCheck = min($zip->numFiles, 5); // Reducido a 5 para ser más rápido
+            $startTime = microtime(true);
+            
             for ($i = 0; $i < $maxCheck; $i++) {
-                $filename = $zip->getNameIndex($i);
-                if (strpos($filename, 'database/') === 0) {
-                    $hasDatabase = true;
+                // Verificar timeout cada 3 archivos
+                if ($i % 3 === 0) {
+                    $elapsed = microtime(true) - $startTime;
+                    if ($elapsed > 5) { // Más de 5 segundos
+                        $this->logger->debug("Validation timeout, aborting", [
+                            'file' => basename($zipPath),
+                            'elapsed' => $elapsed
+                        ]);
+                        break;
+                    }
                 }
-                if (strpos($filename, 'files/') === 0) {
+                
+                $filename = $zip->getNameIndex($i);
+                if ($filename === false) {
+                    continue;
+                }
+                
+                // Verificar estructura básica
+                if ($filename === 'backup_info.json') {
+                    $hasInfo = true;
+                } elseif (strpos($filename, 'database/') === 0) {
+                    $hasDatabase = true;
+                } elseif (strpos($filename, 'files/') === 0) {
                     $hasFiles = true;
                 }
                 
-                // Salir temprano si encontramos todo
-                if ($hasInfo && $hasDatabase && $hasFiles) {
+                // Salir temprano si encontramos todo lo necesario
+                if ($hasInfo && ($hasDatabase || $hasFiles)) {
                     break;
                 }
             }
             
             $zip->close();
-            return $hasInfo && ($hasDatabase || $hasFiles); // Al menos backup_info y uno de los tipos
+            
+            $isValid = $hasInfo && ($hasDatabase || $hasFiles);
+            
+            $this->logger->debug("ZIP validation completed", [
+                'file' => basename($zipPath),
+                'is_valid' => $isValid,
+                'has_info' => $hasInfo,
+                'has_database' => $hasDatabase,
+                'has_files' => $hasFiles
+            ]);
+            
+            return $isValid;
             
         } catch (Exception $e) {
+            $this->logger->warning("ZIP validation error", [
+                'file' => basename($zipPath),
+                'error' => $e->getMessage()
+            ]);
             return false;
+        } finally {
+            // Restaurar timeout original
+            set_time_limit((int)$oldTimeLimit);
         }
     }
 
