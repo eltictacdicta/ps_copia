@@ -297,6 +297,9 @@ class DatabaseMigrator
                 $this->logger->info("New shop_url data after update", $newData ?: []);
                 
                 $this->logger->info("Updated shop_url table - domain: {$newDomain}, physical_uri: {$physicalUri}");
+
+                // NEW: Also update configuration keys PS_SHOP_DOMAIN and PS_SHOP_DOMAIN_SSL
+                $this->updateDomainConfiguration($newDomain);
             }
         } catch (Exception $e) {
             $this->logger->error("Failed to update shop_url table: " . $e->getMessage());
@@ -558,6 +561,9 @@ class DatabaseMigrator
                 $this->logger->info("New shop_url data after update", $newData ?: []);
                 
                 $this->logger->info("Updated domain and domain_ssl in {$shopUrlTable} to {$currentDomain}");
+
+                // NEW: Also update configuration keys PS_SHOP_DOMAIN and PS_SHOP_DOMAIN_SSL
+                $this->updateDomainConfiguration($currentDomain);
             } else {
                 $this->logger->warning("shop_url table does not exist");
             }
@@ -1019,6 +1025,18 @@ class DatabaseMigrator
 
          } catch (Exception $e) {
              $this->logger->error("Error while logging admin configuration preservation: " . $e->getMessage());
+         }
+     }
+
+     private function updateDomainConfiguration(string $domain): void
+     {
+         try {
+             $this->logger->info("Updating configuration domains to {$domain}");
+             $sql = "UPDATE `" . _DB_PREFIX_ . "configuration` SET `value` = '" . pSQL($domain) . "' WHERE `name` IN ('PS_SHOP_DOMAIN', 'PS_SHOP_DOMAIN_SSL')";
+             $result = $this->db->execute($sql);
+             $this->logger->info("Configuration domain update executed with result: " . ($result ? 'SUCCESS' : 'FAILED'));
+         } catch (Exception $e) {
+             $this->logger->error("Failed to update configuration domains: " . $e->getMessage());
          }
      }
 } 

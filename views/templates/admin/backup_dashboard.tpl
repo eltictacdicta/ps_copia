@@ -70,11 +70,11 @@
                             </button>
                             <button id="uploadWithMigrationDirectBtn" class="btn btn-lg btn-primary">
                                 <i class="icon-magic"></i>
-                                Subir Backup con Migración
+                                Migrar desde Otro PrestaShop
                             </button>
                         </div>
                         <small class="help-block" style="margin-top: 10px;">
-                            <strong>Migración:</strong> Permite cambiar URLs, carpetas admin y configuraciones durante la importación
+                            <strong>Migración:</strong> Cambia URLs y configuraciones automáticamente
                         </small>
                     </div>
                 </div>
@@ -200,150 +200,45 @@
     </div>
 </div>
 
-<!-- Modal para subir backup con migración -->
+<!-- Modal simplificado para migración -->
 <div class="modal fade" id="uploadMigrationModal" tabindex="-1" role="dialog">
-    <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-dialog" role="document">
         <div class="modal-content">
             <div class="modal-header">
                 <button type="button" class="close" data-dismiss="modal">&times;</button>
                 <h4 class="modal-title">
                     <i class="icon-magic text-primary"></i>
-                    Importar Backup desde Otro PrestaShop
+                    Migrar desde Otro PrestaShop
                 </h4>
             </div>
             <div class="modal-body">
                 <div class="alert alert-warning">
                     <strong><i class="icon-warning-sign"></i> IMPORTANTE:</strong> 
-                    Esta función permite importar backups desde otros PrestaShop adaptando <strong>URLs</strong>, configuraciones de base de datos y carpetas de admin. 
-                    <strong>Se sobrescribirán TODOS los datos actuales.</strong>
-                </div>
-                
-                <div class="alert alert-info">
-                    <strong><i class="icon-magic"></i> Configuración Automática Inteligente:</strong>
-                    <ul style="margin-bottom: 0;">
-                        <li><strong><i class="icon-check text-success"></i> Migrar URLs:</strong> Auto-detecta y actualiza dominios automáticamente</li>
-                        <li><strong><i class="icon-lock text-warning"></i> Carpeta Admin:</strong> Se preserva tal como está en el backup original</li>
-                        <li><strong><i class="icon-shield text-success"></i> Config BD:</strong> Mantiene obligatoriamente la configuración actual</li>
-                    </ul>
+                    Se sobrescribirán TODOS los datos actuales.
                 </div>
                 
                 <form id="uploadMigrationForm" enctype="multipart/form-data">
-                    <!-- Archivo de backup -->
                     <div class="form-group">
                         <label for="migration_backup_file">Archivo de Backup (ZIP):</label>
                         <input type="file" class="form-control" id="migration_backup_file" name="backup_file" accept=".zip" required>
-                        <small class="help-block">Archivo ZIP de backup completo desde otro PrestaShop.</small>
                     </div>
 
-                    <!-- Configuración de URLs -->
-                    <div class="panel panel-primary">
-                        <div class="panel-heading">
-                            <h4 class="panel-title">
-                                <input type="checkbox" id="migrate_urls" name="migrate_urls" value="1" checked style="margin-right: 8px;">
-                                <label for="migrate_urls" style="font-weight: bold;">
-                                    <i class="icon-globe"></i> Migrar URLs (Auto-detectar y Cambiar Dominios)
-                                </label>
-                                <small style="display: block; font-weight: normal; color: #666; margin-top: 5px;">
-                                    <i class="icon-info-circle"></i> Recomendado: Detecta automáticamente las URLs y actualiza el sistema
-                                </small>
-                            </h4>
-                        </div>
-                        <div class="panel-body" id="urls_config">
-                            <div class="alert alert-info">
-                                <i class="icon-magic"></i> <strong>Detección Automática Habilitada:</strong> 
-                                El sistema detectará automáticamente las URLs del backup y del sistema actual. 
-                                Puedes especificar URLs manualmente solo si es necesario.
-                            </div>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="form-group">
-                                        <label for="old_url"><strong>URL del Backup (Origen):</strong></label>
-                                        <div class="input-group">
-                                            <input type="url" class="form-control" id="old_url" name="old_url" placeholder="Se auto-detectará del backup">
-                                            <span class="input-group-btn">
-                                                <button type="button" class="btn btn-default" id="clear_old_url" title="Limpiar para auto-detectar">
-                                                    <i class="icon-refresh"></i>
-                                                </button>
-                                            </span>
-                                        </div>
-                                        <small class="help-block">
-                                            <i class="icon-magic"></i> <strong>Auto-detección:</strong> Se extraerá automáticamente del backup
-                                        </small>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="form-group">
-                                        <label for="new_url"><strong>URL Actual (Destino):</strong></label>
-                                        <div class="input-group">
-                                            <input type="url" class="form-control" id="new_url" name="new_url" placeholder="Se auto-detectará del sistema">
-                                            <span class="input-group-btn">
-                                                <button type="button" class="btn btn-default" id="fill_current_url" title="Usar URL actual">
-                                                    <i class="icon-home"></i>
-                                                </button>
-                                            </span>
-                                        </div>
-                                        <small class="help-block">
-                                            <i class="icon-magic"></i> <strong>Auto-detección:</strong> Se usará la URL actual del sistema
-                                        </small>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="text-center">
-                                <p class="help-block">
-                                    <i class="icon-lightbulb"></i> <strong>Tip:</strong> 
-                                    Deja ambos campos vacíos para autodetección completa, 
-                                    o especifica una URL solo si necesitas forzar un valor específico.
-                                </p>
-                            </div>
-                        </div>
+                    <!-- Configuración automática simple -->
+                    <div class="well well-sm">
+                        <h5><i class="icon-magic"></i> Configuración Automática:</h5>
+                        <ul class="list-unstyled" style="margin: 0;">
+                            <li><i class="icon-check text-success"></i> <strong>URLs:</strong> Se detectan y cambian automáticamente</li>
+                            <li><i class="icon-check text-success"></i> <strong>Carpeta Admin:</strong> Se detecta automáticamente del backup</li>
+                            <li><i class="icon-check text-success"></i> <strong>Base de Datos:</strong> Se mantiene la configuración actual</li>
+                        </ul>
                     </div>
 
-                    <!-- Configuración de Admin Directory -->
-                    <div class="panel panel-default">
-                        <div class="panel-heading">
-                            <h4 class="panel-title">
-                                <input type="checkbox" id="migrate_admin_dir" name="migrate_admin_dir" value="1" disabled style="margin-right: 8px;">
-                                <label for="migrate_admin_dir" style="color: #999;">
-                                    <del>Migrar Carpeta de Admin</del>
-                                </label>
-                                <small style="display: block; font-weight: normal; color: #666; margin-top: 5px;">
-                                    <i class="icon-info-circle"></i> Deshabilitado: La carpeta admin se mantiene tal como está en el backup original
-                                </small>
-                            </h4>
-                        </div>
-                        <div class="panel-body">
-                            <div class="alert alert-warning">
-                                <i class="icon-exclamation-triangle"></i> <strong>Configuración Automática:</strong><br>
-                                La carpeta admin se mantiene con su nombre y configuración original del backup.
-                                Esto preserva la compatibilidad y evita problemas de acceso.
-                                <br><br>
-                                <strong>Carpeta admin del backup:</strong> <code id="detected-admin-dir">Se detectará automáticamente</code>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Configuración de Base de Datos -->
-                    <div class="panel panel-success">
-                        <div class="panel-heading">
-                            <h4 class="panel-title">
-                                <input type="checkbox" id="preserve_db_config" name="preserve_db_config" value="1" checked disabled style="margin-right: 8px;">
-                                <label for="preserve_db_config" style="font-weight: bold;">
-                                    <i class="icon-database"></i> Preservar Configuración de Base de Datos Actual
-                                </label>
-                                <small style="display: block; font-weight: normal; color: #666; margin-top: 5px;">
-                                    <i class="icon-check"></i> Obligatorio: Mantiene la configuración de conexión a BD del sistema actual
-                                </small>
-                            </h4>
-                        </div>
-                        <div class="panel-body">
-                            <div class="alert alert-success">
-                                <i class="icon-shield"></i> <strong>Configuración Obligatoria:</strong><br>
-                                Se mantendrá automáticamente la configuración de conexión a la base de datos actual.
-                                Esto es esencial para migraciones entre servidores diferentes y garantiza que 
-                                el sistema continúe funcionando con la configuración de BD correcta.
-                            </div>
-                        </div>
-                    </div>
+                    <!-- Campos ocultos para configuración automática -->
+                    <input type="hidden" name="migrate_urls" value="1">
+                    <input type="hidden" name="migrate_admin_dir" value="0">
+                    <input type="hidden" name="preserve_db_config" value="1">
+                    <input type="hidden" name="old_url" value="">
+                    <input type="hidden" name="new_url" value="">
                 </form>
 
                 <div id="migration-progress" style="display: none;">
@@ -357,7 +252,7 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-default" data-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-primary" id="confirmMigrationBtn">
-                    <i class="icon-magic"></i> Importar con Migración
+                    <i class="icon-magic"></i> Migrar Backup
                 </button>
             </div>
         </div>
@@ -1115,51 +1010,7 @@ $(document).ready(function() {
         $('#uploadMigrationModal').modal('show');
     });
 
-    // Configuración de migración simplificada
-    // URLs siempre habilitadas con autodetección
-    $('#migrate_urls').prop('checked', true).prop('disabled', false);
-    $('#urls_config').show();
-    
-    // Admin directory siempre deshabilitado (se preserva del backup)
-    $('#migrate_admin_dir').prop('checked', false).prop('disabled', true);
-    
-    // Preserve DB config siempre habilitado (obligatorio)
-    $('#preserve_db_config').prop('checked', true).prop('disabled', true);
-
-    // Manejar solo el checkbox de URLs (el único que puede cambiar)
-    $('#migrate_urls').on('change', function() {
-        if ($(this).is(':checked')) {
-            $('#urls_config').show();
-            // URLs no son required porque tenemos autodetección
-            $('#old_url, #new_url').prop('required', false);
-        } else {
-            $('#urls_config').hide();
-            $('#old_url, #new_url').prop('required', false);
-        }
-    });
-
-    // Auto-completar la nueva URL con la URL actual
-    var currentUrl = window.location.protocol + '//' + window.location.host;
-    $('#new_url').attr('placeholder', currentUrl);
-    
-    // Al hacer foco en el campo de nueva URL, auto-rellenar con la URL actual si está vacío
-    $('#new_url').on('focus', function() {
-        if ($(this).val() === '') {
-            $(this).val(currentUrl);
-        }
-    });
-
-    // Botón para llenar URL actual
-    $('#fill_current_url').on('click', function() {
-        $('#new_url').val(currentUrl);
-    });
-
-    // Botón para limpiar URL antigua (permitir auto-detección)
-    $('#clear_old_url').on('click', function() {
-        $('#old_url').val('');
-    });
-
-    // Nota: El directorio admin se mantiene automáticamente del backup original
+    // Configuración automática simplificada - todo se maneja internamente
 
     // Manejar confirmación de importación con migración
     $('#confirmMigrationBtn').on('click', function() {
@@ -1178,36 +1029,8 @@ $(document).ready(function() {
             return;
         }
 
-        // Validar configuración de migración
-        var oldUrl = $('#old_url').val();
-        var newUrl = $('#new_url').val();
-        
-        // Si se proporcionan URLs, validar formato (opcional por autodetección)
-        if (oldUrl && !oldUrl.match(/^https?:\/\/.+/)) {
-            alert('La URL de origen debe comenzar con http:// o https://');
-            return;
-        }
-        
-        if (newUrl && !newUrl.match(/^https?:\/\/.+/)) {
-            alert('La URL de destino debe comenzar con http:// o https://');
-            return;
-        }
-        
-        console.log('Configuración de migración:', {
-            migrate_urls: true, // Siempre habilitado
-            old_url: oldUrl || '(auto-detectar)',
-            new_url: newUrl || '(auto-detectar)',
-            migrate_admin_dir: false, // Siempre deshabilitado
-            preserve_db_config: true // Siempre obligatorio
-        });
-        
-        if (!oldUrl && !newUrl) {
-            console.log('Se utilizará auto-detección completa para ambas URLs');
-        } else if (!oldUrl) {
-            console.log('Se auto-detectará la URL de origen del backup');
-        } else if (!newUrl) {
-            console.log('Se auto-detectará la URL de destino del sistema actual');
-        }
+        // La configuración es automática - no hay validación manual necesaria
+        console.log('Iniciando migración automática con auto-detección completa');
         
         var $btn = $(this);
         $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Migrando...');
@@ -1258,10 +1081,7 @@ $(document).ready(function() {
                     // Limpiar formulario
                     $('#uploadMigrationForm')[0].reset();
                     
-                    // Limpiar las casillas de verificación
-                    $('#migrate_urls, #migrate_admin_dir').prop('checked', false);
-                    $('#urls_config, #admin_config').hide();
-                    $('#preserve_db_config').prop('checked', true);
+                    // Limpiar formulario - la configuración es automática
                     
                     // Scroll al mensaje
                     $('html, body').animate({
@@ -1294,7 +1114,7 @@ $(document).ready(function() {
                 alert('Error: ' + errorMessage);
             },
             complete: function() {
-                $btn.prop('disabled', false).html('<i class="icon-magic"></i> Importar con Migración');
+                $btn.prop('disabled', false).html('<i class="icon-magic"></i> Migrar Backup');
                 $('#migration-progress').hide();
                 $('#migration-progress .progress-bar').css('width', '0%');
                 $('#migration-progress .progress-bar span').text('Procesando migración...');
@@ -1307,15 +1127,7 @@ $(document).ready(function() {
         $('#uploadMigrationForm')[0].reset();
         $('#migration-progress').hide();
         $('#migration-progress .progress-bar').css('width', '0%');
-        $('#confirmMigrationBtn').prop('disabled', false).html('<i class="icon-magic"></i> Importar con Migración');
-        
-        // Restablecer valores predeterminados inteligentes
-        $('#migrate_urls').prop('checked', true).prop('disabled', false);
-        $('#urls_config').show();
-        
-        $('#migrate_admin_dir').prop('checked', false).prop('disabled', true);
-        
-        $('#preserve_db_config').prop('checked', true).prop('disabled', true);
+        $('#confirmMigrationBtn').prop('disabled', false).html('<i class="icon-magic"></i> Migrar Backup');
     });
 });
 {/literal}
