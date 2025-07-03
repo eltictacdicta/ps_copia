@@ -21,16 +21,17 @@ Esta nueva funcionalidad permite importar backups grandes sin las limitaciones d
 ## 🛠️ **Cómo Funciona**
 
 ### **1. Directorio de Uploads**
-El módulo crea automáticamente:
+El módulo crea automáticamente en el directorio admin (mejorada seguridad):
 ```
-/modules/ps_copia/backups/uploads/
+/[admin_folder]/ps_copia_uploads/
 ├── .htaccess          # Seguridad
 ├── index.php          # Prevenir listado
 └── [tus_archivos.zip] # Backups subidos
 ```
+**Nota**: `[admin_folder]` es único en cada instalación (ej: admin123, admin_xyz, etc.)
 
 ### **2. Flujo de Trabajo**
-1. **Subir archivo** → FTP/SFTP a la carpeta `uploads/`
+1. **Subir archivo** → FTP/SFTP a la carpeta `/[admin_folder]/ps_copia_uploads/`
 2. **Escanear** → El módulo detecta automáticamente archivos ZIP
 3. **Validar** → Verifica estructura de backup
 4. **Importar** → Procesa usando optimizaciones para sitios grandes
@@ -44,7 +45,7 @@ El módulo crea automáticamente:
 ```bash
 # Conectar por FTP
 ftp tu-servidor.com
-cd /path/to/prestashop/modules/ps_copia/backups/uploads/
+cd /path/to/prestashop/[admin_folder]/ps_copia_uploads/
 put mi_backup_grande.zip
 quit
 ```
@@ -53,14 +54,14 @@ quit
 ```bash
 # Conectar por SFTP
 sftp usuario@tu-servidor.com
-cd /path/to/prestashop/modules/ps_copia/backups/uploads/
+cd /path/to/prestashop/[admin_folder]/ps_copia_uploads/
 put mi_backup_grande.zip
 exit
 ```
 
 #### **Opción C: Cliente Visual (FileZilla, WinSCP)**
 1. Conectar al servidor
-2. Navegar a `/modules/ps_copia/backups/uploads/`
+2. Navegar a `/[admin_folder]/ps_copia_uploads/`
 3. Arrastrar y soltar el archivo ZIP
 
 ### **Paso 2: Importar desde Panel Admin**
@@ -73,11 +74,18 @@ exit
 
 ## 🔒 **Características de Seguridad**
 
+### **Ubicación Segura en Directorio Admin**
+- 🛡️ **Ruta Impredecible** - Cada instalación tiene un nombre de admin único
+- 🛡️ **Fuera del DocumentRoot Web** - Más difícil acceso directo vía web
+- 🛡️ **Protección Adicional** - Hereda seguridad del directorio admin
+- 🛡️ **Menor Superficie de Ataque** - Ubicación menos obvia para atacantes
+
 ### **Validaciones Implementadas**
 - ✅ **Path Traversal Protection** - Previene acceso fuera del directorio
 - ✅ **Extensión ZIP Obligatoria** - Solo acepta archivos .zip
 - ✅ **Validación de Estructura** - Verifica formato de backup válido
 - ✅ **Acceso Restringido** - Solo desde admin de PrestaShop
+- ✅ **Ubicación Aleatoria** - Carpeta admin con nombre único por instalación
 
 ### **Archivos de Protección**
 ```apache
@@ -133,8 +141,8 @@ Deny from all
 ✅ **Solución:**
 ```bash
 # Establecer permisos correctos
-chmod 755 /modules/ps_copia/backups/uploads/
-chmod 644 /modules/ps_copia/backups/uploads/*.zip
+chmod 755 /[admin_folder]/ps_copia_uploads/
+chmod 644 /[admin_folder]/ps_copia_uploads/*.zip
 ```
 
 ### **Problema: "Timeout durante importación"**
