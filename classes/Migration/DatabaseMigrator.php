@@ -82,13 +82,19 @@ class DatabaseMigrator
             // Restore the external database
             $this->restoreExternalDatabase($backupFile);
 
-            // Apply URL migrations
+            // Apply URL migrations - ALWAYS attempt some form of URL migration
             if (isset($migrationConfig['migrate_urls']) && $migrationConfig['migrate_urls'] && 
                 !empty($migrationConfig['old_url']) && !empty($migrationConfig['new_url'])) {
                 $this->logger->info("URL migration enabled - executing complete URL migration");
                 $this->migrateUrls($migrationConfig['old_url'], $migrationConfig['new_url']);
+            } elseif (!empty($migrationConfig['new_url'])) {
+                // Si tenemos URL de destino pero no de origen, forzamos actualización
+                $this->logger->info("Destination URL available - forcing shop_url update to overwrite backup URLs");
+                $this->forceUpdateShopUrl($migrationConfig);
+                // También intentar migración básica de configuración
+                $this->updateDomainConfigurationForced($migrationConfig['new_url']);
             } else {
-                $this->logger->info("URL migration not enabled or incomplete config - executing fallback shop_url update", [
+                $this->logger->info("No destination URL detected - attempting fallback shop_url update", [
                     'migrate_urls_flag' => isset($migrationConfig['migrate_urls']) ? $migrationConfig['migrate_urls'] : 'not_set',
                     'old_url_present' => !empty($migrationConfig['old_url']),
                     'new_url_present' => !empty($migrationConfig['new_url'])
@@ -520,55 +526,73 @@ class DatabaseMigrator
      */
     private function updateShopUrlTable(): void
     {
-        $this->logger->info("Updating shop_url table with current domain (no URL migration specified)");
+        $this->logger->info("AGGRESSIVELY updating shop_url table to overwrite backup URLs");
 
         try {
-            // Get current domain from various sources
+            // Get current domain from various sources - be more aggressive
             $currentDomain = $this->getCurrentDomain();
             
             $this->logger->info("Detected current domain: " . ($currentDomain ?: 'NULL'));
             
             if (!$currentDomain) {
-                $this->logger->warning("Could not determine current domain from any source");
+                $this->logger->warning("Could not determine current domain - trying all fallbacks");
                 
-                // Try to use a fallback domain from server configuration
-                if (isset($_SERVER['SERVER_NAME']) && !empty($_SERVER['SERVER_NAME'])) {
-                    $currentDomain = $_SERVER['SERVER_NAME'];
-                    $this->logger->info("Using SERVER_NAME as fallback domain: " . $currentDomain);
-                } elseif (isset($_SERVER['HTTP_HOST']) && !empty($_SERVER['HTTP_HOST'])) {
-                    $currentDomain = $_SERVER['HTTP_HOST'];
-                    $this->logger->info("Using HTTP_HOST as fallback domain: " . $currentDomain);
-                } else {
-                    $this->logger->error("Could not determine any domain, skipping shop_url update");
+                // Try multiple fallbacks in order of preference
+                $fallbacks = [
+                    'SERVER_NAME' => $_SERVER['SERVER_NAME'] ?? '',
+                    'HTTP_HOST' => $_SERVER['HTTP_HOST'] ?? '',
+                    'localhost' => 'localhost'
+                ];
+                
+                foreach ($fallbacks as $source => $domain) {
+                    if (!empty($domain)) {
+                        $currentDomain = $domain;
+                        $this->logger->info("Using {$source} as fallback domain: " . $currentDomain);
+                        break;
+                    }
+                }
+                
+                if (!$currentDomain) {
+                    $this->logger->error("All fallbacks failed, cannot update shop_url");
                     return;
                 }
+            }
+
+            // Remove port if present
+            if (strpos($currentDomain, ':') !== false) {
+                $originalDomain = $currentDomain;
+                $currentDomain = explode(':', $currentDomain)[0];
+                $this->logger->info("Removed port from domain: {$originalDomain} → {$currentDomain}");
             }
 
             $shopUrlTable = _DB_PREFIX_ . 'shop_url';
             if ($this->tableExists($shopUrlTable)) {
                 // Log current state before update
                 $currentData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
-                $this->logger->info("Current shop_url data before update", $currentData ?: []);
+                $this->logger->info("Current shop_url data before AGGRESSIVE update", $currentData ?: []);
                 
-                // Update domain and domain_ssl
-                $sql = "UPDATE `{$shopUrlTable}` SET `domain` = '" . pSQL($currentDomain) . "', `domain_ssl` = '" . pSQL($currentDomain) . "'";
+                // Update domain, domain_ssl, and physical_uri
+                $sql = "UPDATE `{$shopUrlTable}` SET 
+                        `domain` = '" . pSQL($currentDomain) . "', 
+                        `domain_ssl` = '" . pSQL($currentDomain) . "',
+                        `physical_uri` = '/'";
                 $result = $this->db->execute($sql);
                 
-                $this->logger->info("Update query executed with result: " . ($result ? 'SUCCESS' : 'FAILED'));
+                $this->logger->info("AGGRESSIVE update query executed with result: " . ($result ? 'SUCCESS' : 'FAILED'));
                 
                 // Log state after update
                 $newData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
-                $this->logger->info("New shop_url data after update", $newData ?: []);
+                $this->logger->info("New shop_url data after AGGRESSIVE update", $newData ?: []);
                 
-                $this->logger->info("Updated domain and domain_ssl in {$shopUrlTable} to {$currentDomain}");
+                $this->logger->info("AGGRESSIVELY updated shop_url table - domain: {$currentDomain}, physical_uri: /");
 
-                // NEW: Also update configuration keys PS_SHOP_DOMAIN and PS_SHOP_DOMAIN_SSL
+                // Also update configuration keys PS_SHOP_DOMAIN and PS_SHOP_DOMAIN_SSL
                 $this->updateDomainConfiguration($currentDomain);
             } else {
                 $this->logger->warning("shop_url table does not exist");
             }
         } catch (Exception $e) {
-            $this->logger->error("Failed to update shop_url table: " . $e->getMessage());
+            $this->logger->error("Failed to AGGRESSIVELY update shop_url table: " . $e->getMessage());
         }
     }
 
@@ -579,19 +603,28 @@ class DatabaseMigrator
      */
     private function getCurrentDomain(): ?string
     {
-        $this->logger->info("Attempting to detect current domain...");
+        $this->logger->info("AGGRESSIVELY attempting to detect current domain for URL overwrite...");
         
         $domain = null;
         
-        // Try to get domain from HTTP_HOST
+        // Priority 1: Try to get domain from HTTP_HOST (most reliable for current request)
         if (isset($_SERVER['HTTP_HOST']) && !empty($_SERVER['HTTP_HOST'])) {
             $domain = $_SERVER['HTTP_HOST'];
-            $this->logger->info("Found domain from HTTP_HOST: " . $domain);
+            $this->logger->info("Found domain from HTTP_HOST (priority 1): " . $domain);
         }
-        // Try to get from SERVER_NAME
+        // Priority 2: Try to get from SERVER_NAME
         elseif (isset($_SERVER['SERVER_NAME']) && !empty($_SERVER['SERVER_NAME'])) {
             $domain = $_SERVER['SERVER_NAME'];
-            $this->logger->info("Found domain from SERVER_NAME: " . $domain);
+            $this->logger->info("Found domain from SERVER_NAME (priority 2): " . $domain);
+        }
+        // Priority 3: Try environment variables or common alternatives
+        elseif (!empty(getenv('HTTP_HOST'))) {
+            $domain = getenv('HTTP_HOST');
+            $this->logger->info("Found domain from HTTP_HOST env var (priority 3): " . $domain);
+        }
+        elseif (!empty(getenv('SERVER_NAME'))) {
+            $domain = getenv('SERVER_NAME');
+            $this->logger->info("Found domain from SERVER_NAME env var (priority 4): " . $domain);
         }
         
         // Remove port from domain if present (PrestaShop stores domain without port)
@@ -601,38 +634,36 @@ class DatabaseMigrator
             $this->logger->info("Removed port from domain: {$originalDomain} → {$domain}");
         }
         
+        // Basic validation - reject obviously invalid domains
+        if ($domain && ($domain === 'localhost' || $domain === '127.0.0.1' || strpos($domain, '.local') !== false)) {
+            $this->logger->warning("Detected local domain ({$domain}), will try other sources");
+            $localDomain = $domain; // Keep as fallback
+            $domain = null;
+        }
+        
         if ($domain) {
+            $this->logger->info("Successfully detected current domain: " . $domain);
             return $domain;
         }
         
-        // Try to get from configuration if available
-        try {
-            $sql = "SELECT `value` FROM `" . _DB_PREFIX_ . "configuration` WHERE `name` = 'PS_SHOP_DOMAIN' LIMIT 1";
-            $result = $this->db->executeS($sql);
-            if (!empty($result) && !empty($result[0]['value'])) {
-                $domain = $result[0]['value'];
-                $this->logger->info("Found domain from PS_SHOP_DOMAIN config: " . $domain);
-                return $domain;
-            }
-        } catch (Exception $e) {
-            $this->logger->warning("Failed to get domain from configuration: " . $e->getMessage());
-        }
-        
-        // Try to get from Context if available
-        if (class_exists('Context') && Context::getContext() && Context::getContext()->shop) {
+        // Try to get from Context if available (PrestaShop specific)
+        if (class_exists('Context')) {
             try {
-                $shop = Context::getContext()->shop;
-                if (method_exists($shop, 'getBaseURL')) {
-                    $baseUrl = $shop->getBaseURL(true);
-                    $parsedUrl = parse_url($baseUrl);
-                    if (isset($parsedUrl['host'])) {
-                        $domain = $parsedUrl['host'];
-                        // Remove port if present
-                        if (strpos($domain, ':') !== false) {
-                            $domain = explode(':', $domain)[0];
+                $context = Context::getContext();
+                if ($context && isset($context->shop) && $context->shop) {
+                    $shop = $context->shop;
+                    if (method_exists($shop, 'getBaseURL')) {
+                        $baseUrl = $shop->getBaseURL(true);
+                        $parsedUrl = parse_url($baseUrl);
+                        if (isset($parsedUrl['host'])) {
+                            $domain = $parsedUrl['host'];
+                            // Remove port if present
+                            if (strpos($domain, ':') !== false) {
+                                $domain = explode(':', $domain)[0];
+                            }
+                            $this->logger->info("Found domain from Context shop: " . $domain);
+                            return $domain;
                         }
-                        $this->logger->info("Found domain from Context shop: " . $domain);
-                        return $domain;
                     }
                 }
             } catch (Exception $e) {
@@ -640,24 +671,30 @@ class DatabaseMigrator
             }
         }
         
-        // As a last resort, try to extract from current shop_url table
+        // Try to get from configuration if available (but this might be from backup, so be careful)
         try {
-            $sql = "SELECT `domain` FROM `" . _DB_PREFIX_ . "shop_url` WHERE `domain` != '' AND `domain` IS NOT NULL LIMIT 1";
+            $sql = "SELECT `value` FROM `" . _DB_PREFIX_ . "configuration` WHERE `name` = 'PS_SHOP_DOMAIN' LIMIT 1";
             $result = $this->db->executeS($sql);
-            if (!empty($result) && !empty($result[0]['domain'])) {
-                // But only if it's not obviously from a different environment
-                $domain = $result[0]['domain'];
-                if (!strpos($domain, 'localhost') && !strpos($domain, '127.0.0.1') && !strpos($domain, '.local')) {
-                    $this->logger->info("Found domain from existing shop_url: " . $domain);
-                    return $domain;
+            if (!empty($result) && !empty($result[0]['value'])) {
+                $configDomain = $result[0]['value'];
+                // Only use if it doesn't look like a backup domain
+                if (!strpos($configDomain, 'localhost') && !strpos($configDomain, '127.0.0.1') && !strpos($configDomain, '.local')) {
+                    $this->logger->info("Found domain from PS_SHOP_DOMAIN config: " . $configDomain);
+                    return $configDomain;
                 }
             }
         } catch (Exception $e) {
-            $this->logger->warning("Failed to get domain from shop_url table: " . $e->getMessage());
+            $this->logger->warning("Failed to get domain from configuration: " . $e->getMessage());
         }
         
-                 $this->logger->warning("Could not detect domain from any source");
-         return null;
+        // As a last resort, use the local domain we found earlier
+        if (isset($localDomain)) {
+            $this->logger->warning("Using local domain as last resort: " . $localDomain);
+            return $localDomain;
+        }
+        
+        $this->logger->error("Could not detect domain from ANY source - this will cause URL migration issues");
+        return null;
      }
 
      /**
@@ -734,22 +771,14 @@ class DatabaseMigrator
       */
      private function autoDetectUrls(string $backupFile, array $migrationConfig): array
      {
-         $this->logger->info("Auto-detecting URLs for migration");
+         $this->logger->info("Auto-detecting URLs for migration - ALWAYS enabling URL migration");
 
-         // Only auto-detect if URL migration is enabled or not explicitly disabled
-         $shouldAutoDetect = isset($migrationConfig['migrate_urls']) && $migrationConfig['migrate_urls'];
+         // SIEMPRE auto-detectar y habilitar migración de URLs para sobrescribir datos del backup
+         $shouldAutoDetect = true;
          
-         if (!$shouldAutoDetect && (empty($migrationConfig['old_url']) || empty($migrationConfig['new_url']))) {
-             $this->logger->info("URL migration not enabled, but URLs missing - enabling auto-detection");
-             $shouldAutoDetect = true;
-         }
+         $this->logger->info("URL auto-detection ALWAYS enabled to overwrite backup URLs");
 
-         if (!$shouldAutoDetect) {
-             $this->logger->info("Skipping URL auto-detection (not enabled or URLs already provided)");
-             return $migrationConfig;
-         }
-
-         // Detect destination URL (current system) - this is fast
+         // Detect destination URL (current system) - this is fast and ALWAYS needed
          if (empty($migrationConfig['new_url'])) {
              $currentDomain = $this->getCurrentDomain();
              if ($currentDomain) {
@@ -757,6 +786,11 @@ class DatabaseMigrator
                  $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http';
                  $migrationConfig['new_url'] = $protocol . '://' . $currentDomain;
                  $this->logger->info("Auto-detected destination URL: " . $migrationConfig['new_url']);
+             } else {
+                 // Fallback to localhost if no domain detected
+                 $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http';
+                 $migrationConfig['new_url'] = $protocol . '://localhost';
+                 $this->logger->warning("Could not detect domain, using localhost fallback: " . $migrationConfig['new_url']);
              }
          }
 
@@ -769,23 +803,26 @@ class DatabaseMigrator
                  $migrationConfig['old_url'] = 'https://' . $sourceDomain;
                  $this->logger->info("Auto-detected source URL from backup: " . $migrationConfig['old_url']);
              } else {
-                 $this->logger->warning("Could not extract source domain from backup");
+                 // If we can't detect source URL, we'll still force update the shop_url table
+                 $this->logger->warning("Could not extract source domain from backup - will force update shop_url");
+                 $migrationConfig['old_url'] = ''; // This will trigger force update
              }
          }
 
-         // Auto-enable URL migration if both URLs are available and different
-         if (!empty($migrationConfig['old_url']) && !empty($migrationConfig['new_url'])) {
-             $oldDomain = parse_url($migrationConfig['old_url'], PHP_URL_HOST);
-             $newDomain = parse_url($migrationConfig['new_url'], PHP_URL_HOST);
+         // SIEMPRE habilitar migración de URLs si tenemos una URL de destino
+         if (!empty($migrationConfig['new_url'])) {
+             $migrationConfig['migrate_urls'] = true;
              
-             if ($oldDomain && $newDomain && $oldDomain !== $newDomain) {
-                 if (!isset($migrationConfig['migrate_urls']) || !$migrationConfig['migrate_urls']) {
-                     $migrationConfig['migrate_urls'] = true;
-                     $this->logger->info("Auto-enabled URL migration: {$oldDomain} → {$newDomain}");
-                 }
-             } elseif ($oldDomain && $newDomain && $oldDomain === $newDomain) {
-                 $this->logger->info("Source and destination domains are the same ({$oldDomain}), URL migration not needed");
+             if (!empty($migrationConfig['old_url'])) {
+                 $oldDomain = parse_url($migrationConfig['old_url'], PHP_URL_HOST);
+                 $newDomain = parse_url($migrationConfig['new_url'], PHP_URL_HOST);
+                 $this->logger->info("URL migration FORCED: {$oldDomain} → {$newDomain}");
+             } else {
+                 $newDomain = parse_url($migrationConfig['new_url'], PHP_URL_HOST);
+                 $this->logger->info("URL migration FORCED with destination only: {$newDomain} (will force update shop_url)");
              }
+         } else {
+             $this->logger->error("Could not determine destination URL - migration may fail");
          }
 
          return $migrationConfig;
@@ -1037,6 +1074,46 @@ class DatabaseMigrator
              $this->logger->info("Configuration domain update executed with result: " . ($result ? 'SUCCESS' : 'FAILED'));
          } catch (Exception $e) {
              $this->logger->error("Failed to update configuration domains: " . $e->getMessage());
+         }
+     }
+
+     /**
+      * Force update domain configuration from URL
+      *
+      * @param string $newUrl
+      */
+     private function updateDomainConfigurationForced(string $newUrl): void
+     {
+         try {
+             $this->logger->info("Force updating domain configuration from URL: {$newUrl}");
+             
+             $parsedUrl = parse_url($newUrl);
+             $domain = $parsedUrl['host'] ?? null;
+             
+             if (!$domain) {
+                 $this->logger->error("Could not extract domain from URL: {$newUrl}");
+                 return;
+             }
+             
+             // Remove port if present
+             if (strpos($domain, ':') !== false) {
+                 $domain = explode(':', $domain)[0];
+             }
+             
+             // Update domain configurations
+             $configUpdates = [
+                 'PS_SHOP_DOMAIN' => $domain,
+                 'PS_SHOP_DOMAIN_SSL' => $domain
+             ];
+             
+             foreach ($configUpdates as $configKey => $configValue) {
+                 $sql = "UPDATE `" . _DB_PREFIX_ . "configuration` SET `value` = '" . pSQL($configValue) . "' WHERE `name` = '" . pSQL($configKey) . "'";
+                 $result = $this->db->execute($sql);
+                 $this->logger->info("Force updated {$configKey} to {$configValue}: " . ($result ? 'SUCCESS' : 'FAILED'));
+             }
+             
+         } catch (Exception $e) {
+             $this->logger->error("Failed to force update domain configuration: " . $e->getMessage());
          }
      }
 } 
