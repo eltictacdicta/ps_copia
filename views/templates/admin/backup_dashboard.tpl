@@ -1218,16 +1218,19 @@ $(document).ready(function() {
             <div class="modal-body">
                 <div class="alert alert-info">
                     <strong><i class="icon-info-circle"></i> ¿Cómo funciona?</strong><br>
-                    Esta función escanea la carpeta <code>/modules/ps_copia/backups/uploads/</code> en busca de archivos ZIP subidos directamente al servidor mediante FTP/SFTP.
+                    Esta función escanea la carpeta del directorio admin en busca de archivos ZIP subidos directamente al servidor mediante FTP/SFTP.
                 </div>
                 
                 <div class="well well-sm">
                     <strong><i class="icon-lightbulb-o"></i> Para archivos grandes:</strong>
                     <ol style="margin: 5px 0;">
-                        <li>Sube tu archivo ZIP mediante FTP/SFTP a la carpeta <code>uploads/</code></li>
+                        <li>Sube tu archivo ZIP mediante FTP/SFTP a la carpeta <code>/[admin_folder]/ps_copia_uploads/</code></li>
                         <li>Usa el botón "Escanear" para detectar archivos</li>
                         <li>Selecciona e importa el archivo deseado</li>
                     </ol>
+                    <div class="alert alert-warning" style="margin-top: 10px; margin-bottom: 0;">
+                        <small><strong><i class="icon-shield"></i> Seguridad mejorada:</strong> Los uploads ahora se almacenan en el directorio admin (ruta única por instalación) para mayor protección.</small>
+                    </div>
                 </div>
 
                 <div class="row">
