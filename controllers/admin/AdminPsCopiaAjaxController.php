@@ -2575,6 +2575,9 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         
         $this->logger->info("Starting server uploads directory scan");
         $startTime = microtime(true);
+        
+        // Log específico para debugging
+        error_log("PS_COPIA: Iniciando escaneo de uploads del servidor - " . date('Y-m-d H:i:s'));
 
         try {
             // Optimizar para operaciones potencialmente largas
@@ -2802,6 +2805,8 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                 'total_items' => count($files) - 2 // Excluir . y ..
             ]);
             
+            error_log("PS_COPIA: Directorio encontrado con " . (count($files) - 2) . " elementos");
+            
             $processedCount = 0;
             $validCount = 0;
             
@@ -2839,19 +2844,46 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                     ]);
                     
                     // Verificar si es un backup válido revisando la estructura básica
-                    // Usar try-catch específico para la validación
+                    // Usar try-catch específico para la validación con timeout agresivo
                     $isValidBackup = false;
+                    $validationStart = microtime(true);
+                    
                     try {
+                        // Timeout super agresivo por archivo
+                        $oldLimit = ini_get('max_execution_time');
+                        set_time_limit(5); // Solo 5 segundos por archivo
+                        
                         $isValidBackup = $this->quickValidateBackupZip($filePath);
                         if ($isValidBackup) {
                             $validCount++;
                         }
+                        
+                        set_time_limit((int)$oldLimit); // Restaurar
+                        
                     } catch (Exception $e) {
+                        $elapsed = microtime(true) - $validationStart;
                         $this->logger->warning("Validation failed for ZIP file", [
                             'file' => $file,
-                            'error' => $e->getMessage()
+                            'error' => $e->getMessage(),
+                            'elapsed' => round($elapsed, 2) . 's'
                         ]);
                         $isValidBackup = false;
+                        
+                        // Restaurar timeout
+                        set_time_limit((int)$oldLimit);
+                        
+                        // Si tardó mucho, asumir que es válido por el nombre
+                        if ($elapsed > 3) {
+                            $filename = basename($filePath);
+                            $isValidBackup = (
+                                strpos($filename, 'backup') !== false ||
+                                strpos($filename, 'export') !== false
+                            );
+                            $this->logger->info("Fallback validation by filename", [
+                                'file' => $file,
+                                'assumed_valid' => $isValidBackup
+                            ]);
+                        }
                     }
                     
                     $zipFiles[] = [
@@ -2922,7 +2954,7 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
     {
         // Configurar timeout para evitar que se cuelgue
         $oldTimeLimit = ini_get('max_execution_time');
-        set_time_limit(15); // Máximo 15 segundos para validación
+        set_time_limit(5); // Máximo 5 segundos para validación
         
         try {
             // Verificaciones previas básicas
@@ -2936,34 +2968,30 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                 return false;
             }
             
-            // Para archivos grandes, ser más conservador
-            if ($fileSize > 100 * 1024 * 1024) { // Más de 100MB
-                $this->logger->debug("Large ZIP file detected, skipping deep validation", [
-                    'file' => basename($zipPath),
-                    'size' => $this->formatBytes($fileSize)
-                ]);
-                return true; // Asumir que es válido para archivos grandes
-            }
-            
-            // Para archivos medianos (10MB+), usar validación rápida
-            if ($fileSize > 10 * 1024 * 1024) { // Más de 10MB
-                $this->logger->debug("Medium ZIP file detected, using quick validation", [
+            // NUEVA ESTRATEGIA: Para cualquier archivo > 1MB, usar solo validación por nombre
+            // Esto evita completamente los problemas de timeout con ZipArchive
+            if ($fileSize > 1024 * 1024) { // Más de 1MB
+                $this->logger->debug("Large ZIP file detected, using filename-only validation", [
                     'file' => basename($zipPath),
                     'size' => $this->formatBytes($fileSize)
                 ]);
                 
-                // Solo verificar que se puede abrir y tiene backup_info.json
-                $zip = new ZipArchive();
-                $result = $zip->open($zipPath, ZipArchive::RDONLY);
+                $filename = basename($zipPath);
+                $isLikelyBackup = (
+                    strpos($filename, 'backup') !== false ||
+                    strpos($filename, 'export') !== false ||
+                    preg_match('/\d{4}-\d{2}-\d{2}/', $filename) || // Contiene fecha
+                    preg_match('/\d{2}-\d{2}-\d{4}/', $filename) || // Otra formato de fecha
+                    strpos($filename, 'ps_copia') !== false ||
+                    strpos($filename, 'prestashop') !== false
+                );
                 
-                if ($result !== TRUE) {
-                    return false;
-                }
+                $this->logger->debug("Filename-only validation result", [
+                    'file' => $filename,
+                    'is_likely_backup' => $isLikelyBackup
+                ]);
                 
-                $hasInfo = $zip->locateName('backup_info.json') !== false;
-                $zip->close();
-                
-                return $hasInfo;
+                return $isLikelyBackup;
             }
             
             $zip = new ZipArchive();
