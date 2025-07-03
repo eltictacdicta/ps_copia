@@ -843,6 +843,21 @@ $(document).ready(function() {
         });
     });
 
+    // Función auxiliar para formatear bytes
+    function formatBytes(bytes, decimals = 2) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    // Función para verificar si es un archivo grande
+    function isLargeFile(file) {
+        return file.size > 100 * 1024 * 1024; // 100MB
+    }
+
     // Manejar botones de exportar backup
     $(document).on('click', '.export-backup-btn', function() {
         var $btn = $(this);
@@ -854,7 +869,7 @@ $(document).ready(function() {
             url: ajaxUrl,
             type: 'POST',
             dataType: 'json',
-            timeout: 300000, // 5 minutos de timeout
+            timeout: 1800000, // 30 minutos para exportaciones grandes
             data: {
                 action: 'export_backup',
                 backup_name: backupName,
@@ -882,7 +897,14 @@ $(document).ready(function() {
             error: function(xhr, status, error) {
                 var errorMessage = 'Error de comunicación con el servidor';
                 if (status === 'timeout') {
-                    errorMessage = 'La operación tardó demasiado tiempo. Intenta de nuevo.';
+                    errorMessage = 'La operación tardó demasiado tiempo. Para sitios muy grandes, verifica si la exportación se completó más tarde.';
+                } else if (xhr.responseText) {
+                    try {
+                        var response = JSON.parse(xhr.responseText);
+                        errorMessage = response.error || errorMessage;
+                    } catch (e) {
+                        errorMessage += ': ' + xhr.responseText.substring(0, 200);
+                    }
                 }
                 alert('Error: ' + errorMessage);
             },
@@ -909,6 +931,21 @@ $(document).ready(function() {
             return;
         }
         
+        // Advertencia para archivos grandes
+        if (isLargeFile(file)) {
+            var sizeFormatted = formatBytes(file.size);
+            var confirmMessage = 'El archivo es grande (' + sizeFormatted + '). La importación puede tardar mucho tiempo.\n\n';
+            confirmMessage += 'Para sitios grandes se recomienda:\n';
+            confirmMessage += '• Tener paciencia durante el proceso\n';
+            confirmMessage += '• No cerrar la página\n';
+            confirmMessage += '• Verificar que no hay límites de tiempo en el servidor\n\n';
+            confirmMessage += '¿Continuar con la importación?';
+            
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+        }
+        
         var $btn = $(this);
         $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Subiendo...');
         $('#upload-progress').show();
@@ -921,6 +958,9 @@ $(document).ready(function() {
         formData.append('token', "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}");
 {literal}
 
+        // Timeout dinámico basado en el tamaño del archivo
+        var dynamicTimeout = isLargeFile(file) ? 3600000 : 600000; // 60min para grandes, 10min para normales
+
         $.ajax({
             url: ajaxUrl,
             type: 'POST',
@@ -928,7 +968,7 @@ $(document).ready(function() {
             data: formData,
             processData: false,
             contentType: false,
-            timeout: 600000, // 10 minutos de timeout
+            timeout: dynamicTimeout,
             xhr: function() {
                 var xhr = new window.XMLHttpRequest();
                 xhr.upload.addEventListener("progress", function(evt) {
@@ -940,9 +980,25 @@ $(document).ready(function() {
                 }, false);
                 return xhr;
             },
+            beforeSend: function() {
+                // Mostrar información adicional para archivos grandes
+                if (isLargeFile(file)) {
+                    $('#upload-progress .progress-bar span').text('Subiendo archivo grande... 0%');
+                    
+                    // Mostrar mensaje informativo
+                    var infoHtml = '<div class="alert alert-info" id="large-file-info">';
+                    infoHtml += '<i class="icon-info-circle"></i> ';
+                    infoHtml += '<strong>Archivo grande detectado:</strong> Se está usando procesamiento optimizado para evitar problemas de memoria y timeout.';
+                    infoHtml += '</div>';
+                    $('#ps-copia-content').prepend(infoHtml);
+                }
+            },
             success: function(response) {
                 if (response && response.success) {
                     $('#uploadBackupModal').modal('hide');
+                    
+                    // Limpiar mensaje informativo
+                    $('#large-file-info').remove();
                     
                     // Mostrar mensaje de éxito
                     var alertHtml = '<div class="alert alert-success alert-dismissible" role="alert">';
@@ -969,9 +1025,19 @@ $(document).ready(function() {
                 }
             },
             error: function(xhr, status, error) {
+                // Limpiar mensaje informativo
+                $('#large-file-info').remove();
+                
                 var errorMessage = 'Error de comunicación con el servidor';
                 if (status === 'timeout') {
-                    errorMessage = 'La operación tardó demasiado tiempo. El archivo puede ser demasiado grande.';
+                    if (isLargeFile(file)) {
+                        errorMessage = 'La operación tardó demasiado tiempo. Para archivos muy grandes:\n\n';
+                        errorMessage += '• Verifica si la importación se completó revisando la lista de backups\n';
+                        errorMessage += '• Considera dividir el backup en partes más pequeñas\n';
+                        errorMessage += '• Verifica la configuración PHP del servidor (memory_limit, max_execution_time)';
+                    } else {
+                        errorMessage = 'La operación tardó demasiado tiempo. Intenta nuevamente.';
+                    }
                 } else if (xhr.responseText) {
                     try {
                         var response = JSON.parse(xhr.responseText);
