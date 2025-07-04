@@ -1071,8 +1071,15 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             
             $zip->close();
 
+            // Detect admin directories for cleanup
+            $backupAdminDir = $this->detectAdminDirectoryInBackup($tempDir);
+            $currentAdminDir = $this->getCurrentAdminDirectory();
+
             // Copy files from temp to real location
             $this->copyDirectoryRecursively($tempDir, _PS_ROOT_DIR_);
+
+            // Clean up obsolete admin directories after successful restoration
+            $this->cleanupObsoleteAdminDirectories($backupAdminDir, $currentAdminDir);
             
         } finally {
             // Clean up temp directory
@@ -2498,8 +2505,15 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             
             $zip->close();
 
+            // Detect admin directories for cleanup
+            $backupAdminDir = $this->detectAdminDirectoryInBackup($tempDir);
+            $currentAdminDir = $this->getCurrentAdminDirectory();
+
             // Copy files from temp to real location
             $this->copyDirectoryRecursively($tempDir, _PS_ROOT_DIR_);
+
+            // Clean up obsolete admin directories after successful restoration
+            $this->cleanupObsoleteAdminDirectories($backupAdminDir, $currentAdminDir);
             
         } finally {
             // Clean up temp directory
@@ -3211,5 +3225,186 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         } finally {
             $zip->close();
         }
+    }
+
+    /**
+     * Detect admin directory in backup
+     *
+     * @param string $tempDir
+     * @return string|null
+     */
+    private function detectAdminDirectoryInBackup(string $tempDir): ?string
+    {
+        $this->logger->info("Detecting admin directory in backup");
+
+        // Look for directories that look like admin directories
+        $possibleAdminDirs = [];
+        
+        if (is_dir($tempDir)) {
+            $items = scandir($tempDir);
+            foreach ($items as $item) {
+                if ($item === '.' || $item === '..') {
+                    continue;
+                }
+                
+                $itemPath = $tempDir . DIRECTORY_SEPARATOR . $item;
+                if (is_dir($itemPath)) {
+                    // Check if this looks like an admin directory
+                    if ($this->isAdminDirectory($itemPath)) {
+                        $possibleAdminDirs[] = $item;
+                    }
+                }
+            }
+        }
+
+        if (empty($possibleAdminDirs)) {
+            $this->logger->warning("No admin directory detected in backup");
+            return null;
+        }
+
+        if (count($possibleAdminDirs) > 1) {
+            $this->logger->warning("Multiple admin directories found in backup", [
+                'directories' => $possibleAdminDirs
+            ]);
+        }
+
+        $backupAdminDir = $possibleAdminDirs[0];
+        $this->logger->info("Detected admin directory in backup: " . $backupAdminDir);
+        
+        return $backupAdminDir;
+    }
+
+    /**
+     * Get current admin directory name
+     *
+     * @return string|null
+     */
+    private function getCurrentAdminDirectory(): ?string
+    {
+        $currentAdminPath = $this->backupContainer->getProperty(BackupContainer::PS_ADMIN_PATH);
+        $currentAdminDir = basename($currentAdminPath);
+        
+        $this->logger->info("Current admin directory: " . $currentAdminDir);
+        
+        return $currentAdminDir;
+    }
+
+    /**
+     * Check if a directory is an admin directory
+     *
+     * @param string $dirPath
+     * @return bool
+     */
+    private function isAdminDirectory(string $dirPath): bool
+    {
+        // Check for admin-specific files/directories
+        $adminIndicators = [
+            'index.php',
+            'themes',
+            'tabs',
+            'filemanager',
+            'functions.php',
+            'init.php'
+        ];
+
+        $foundIndicators = 0;
+        foreach ($adminIndicators as $indicator) {
+            if (file_exists($dirPath . DIRECTORY_SEPARATOR . $indicator)) {
+                $foundIndicators++;
+            }
+        }
+
+        // If we find at least 3 admin indicators, it's likely an admin directory
+        return $foundIndicators >= 3;
+    }
+
+    /**
+     * Clean up obsolete admin directories after migration
+     *
+     * @param string|null $backupAdminDir
+     * @param string|null $currentAdminDir
+     */
+    private function cleanupObsoleteAdminDirectories(?string $backupAdminDir, ?string $currentAdminDir): void
+    {
+        if (!$backupAdminDir || !$currentAdminDir) {
+            $this->logger->info("Skipping admin directory cleanup - unable to detect directories");
+            return;
+        }
+
+        if ($backupAdminDir === $currentAdminDir) {
+            $this->logger->info("Admin directories are the same, no cleanup needed", [
+                'admin_directory' => $currentAdminDir
+            ]);
+            return;
+        }
+
+        $this->logger->info("Different admin directories detected", [
+            'backup_admin' => $backupAdminDir,
+            'current_admin' => $currentAdminDir
+        ]);
+
+        // Find all admin-like directories in the root
+        $psRootDir = $this->backupContainer->getProperty(BackupContainer::PS_ROOT_PATH);
+        $adminDirectories = $this->findAllAdminDirectories($psRootDir);
+
+        $this->logger->info("Found admin directories in system", [
+            'directories' => $adminDirectories
+        ]);
+
+        // Remove obsolete admin directories
+        foreach ($adminDirectories as $adminDir) {
+            // Don't remove the backup's admin directory (the one we want to keep)
+            if ($adminDir === $backupAdminDir) {
+                $this->logger->info("Preserving backup admin directory: " . $adminDir);
+                continue;
+            }
+
+            // Remove other admin directories
+            $adminPath = $psRootDir . DIRECTORY_SEPARATOR . $adminDir;
+            if (is_dir($adminPath)) {
+                $this->logger->info("Removing obsolete admin directory: " . $adminDir);
+                
+                try {
+                    if ($this->removeDirectoryRecursively($adminPath)) {
+                        $this->logger->info("Successfully removed obsolete admin directory: " . $adminDir);
+                    } else {
+                        $this->logger->error("Failed to remove obsolete admin directory: " . $adminDir);
+                    }
+                } catch (Exception $e) {
+                    $this->logger->error("Error removing obsolete admin directory: " . $adminDir, [
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+        }
+    }
+
+    /**
+     * Find all admin directories in the system
+     *
+     * @param string $psRootDir
+     * @return array
+     */
+    private function findAllAdminDirectories(string $psRootDir): array
+    {
+        $adminDirectories = [];
+        
+        if (!is_dir($psRootDir)) {
+            return $adminDirectories;
+        }
+
+        $items = scandir($psRootDir);
+        foreach ($items as $item) {
+            if ($item === '.' || $item === '..') {
+                continue;
+            }
+            
+            $itemPath = $psRootDir . DIRECTORY_SEPARATOR . $item;
+            if (is_dir($itemPath) && $this->isAdminDirectory($itemPath)) {
+                $adminDirectories[] = $item;
+            }
+        }
+
+        return $adminDirectories;
     }
 }

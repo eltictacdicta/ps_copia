@@ -180,11 +180,30 @@ chmod 644 /[admin_folder]/ps_copia/uploads/*.zip
 - ✅ **Mensajes descriptivos** para cada paso
 - ✅ **Gestión completa** desde un solo panel
 
+## 🆕 **Nueva Funcionalidad: Limpieza Automática de Admin**
+
+### **Eliminación Automática de Carpetas Admin Obsoletas**
+- ✅ **Detección inteligente** de carpetas admin en backups
+- ✅ **Limpieza automática** después de migraciones exitosas  
+- ✅ **Preservación segura** de la carpeta admin del backup
+- ✅ **Logging detallado** del proceso de limpieza
+- ✅ **Sin intervención manual** requerida
+
+```bash
+# Ejemplo de proceso automático:
+[INFO] Different admin directories detected
+[INFO] backup_admin: admin_xyz123, current_admin: admin_abc456
+[INFO] Preserving backup admin directory: admin_xyz123
+[INFO] Successfully removed obsolete admin directory: admin_abc456
+```
+
+**Para más detalles:** Ver `LIMPIEZA_ADMIN.md`
+
 ## 🚀 **Conclusión**
 
 Esta funcionalidad elimina completamente las limitaciones para importar backups grandes, proporcionando una solución robusta y profesional que funciona independientemente de la configuración del servidor.
 
-**¡Ahora puedes migrar sitios de cualquier tamaño sin restricciones!**
+**¡Ahora puedes migrar sitios de cualquier tamaño sin restricciones y sin carpetas admin obsoletas!**
 
 ---
 
