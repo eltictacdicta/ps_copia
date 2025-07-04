@@ -1235,7 +1235,7 @@ $(document).ready(function() {
                 <div class="well well-sm">
                     <strong><i class="icon-lightbulb-o"></i> Para archivos grandes:</strong>
                     <ol style="margin: 5px 0;">
-                        <li>Sube tu archivo ZIP mediante FTP/SFTP a la carpeta <code>/[admin_folder]/ps_copia_uploads/</code></li>
+                        <li>Sube tu archivo ZIP mediante FTP/SFTP a la carpeta <code>/[admin_folder]/ps_copia/uploads/</code></li>
                         <li>Usa el botón "Escanear" para detectar archivos</li>
                         <li>Selecciona e importa el archivo deseado</li>
                     </ol>

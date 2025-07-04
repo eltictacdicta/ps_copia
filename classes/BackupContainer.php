@@ -35,6 +35,7 @@ class BackupContainer
     const WORKSPACE_PATH = 'workspace';
     const BACKUP_PATH = 'backup';
     const LOGS_PATH = 'logs';
+    const UPLOADS_PATH = 'uploads';
     const PS_ROOT_PATH = 'ps_root';
     const PS_ADMIN_PATH = 'ps_admin';
 
@@ -94,6 +95,8 @@ class BackupContainer
                 return $this->backupWorkDir . DIRECTORY_SEPARATOR . 'backup';
             case self::LOGS_PATH:
                 return $this->backupWorkDir . DIRECTORY_SEPARATOR . 'logs';
+            case self::UPLOADS_PATH:
+                return $this->backupWorkDir . DIRECTORY_SEPARATOR . 'uploads';
             default:
                 return '';
         }
@@ -219,6 +222,7 @@ class BackupContainer
             $this->getProperty(self::WORKSPACE_PATH),
             $this->getProperty(self::BACKUP_PATH),
             $this->getProperty(self::LOGS_PATH),
+            $this->getProperty(self::UPLOADS_PATH),
         ];
 
         foreach ($directories as $directory) {
@@ -235,6 +239,9 @@ class BackupContainer
                 throw new Exception("Directory is not writable: {$directory}");
             }
         }
+
+        // Create security files for uploads directory
+        $this->createUploadsSecurityFiles();
     }
 
     /**
@@ -466,5 +473,50 @@ class BackupContainer
             'total_space_formatted' => $this->formatBytes(disk_total_space($backupPath)),
             'used_space_formatted' => $this->formatBytes(disk_total_space($backupPath) - disk_free_space($backupPath)),
         ];
+    }
+
+    /**
+     * Create security files for uploads directory
+     *
+     * @throws Exception
+     */
+    private function createUploadsSecurityFiles(): void
+    {
+        $uploadsPath = $this->getProperty(self::UPLOADS_PATH);
+        
+        if (!$this->getFileSystem()->exists($uploadsPath)) {
+            return; // Directory doesn't exist yet, will be created by initDirectories
+        }
+
+        // Create .htaccess file for security
+        $htaccessPath = $uploadsPath . DIRECTORY_SEPARATOR . '.htaccess';
+        if (!$this->getFileSystem()->exists($htaccessPath)) {
+            $htaccessContent = "# Deny direct access to uploads\n";
+            $htaccessContent .= "Order Deny,Allow\n";
+            $htaccessContent .= "Deny from all\n";
+            $htaccessContent .= "# Allow only from admin\n";
+            $htaccessContent .= "<Files \"*.zip\">\n";
+            $htaccessContent .= "    Order Allow,Deny\n";
+            $htaccessContent .= "    Allow from all\n";
+            $htaccessContent .= "</Files>\n";
+            
+            try {
+                file_put_contents($htaccessPath, $htaccessContent);
+            } catch (Exception $e) {
+                throw new Exception('Cannot create .htaccess security file: ' . $e->getMessage());
+            }
+        }
+
+        // Create index.php file for security
+        $indexPath = $uploadsPath . DIRECTORY_SEPARATOR . 'index.php';
+        if (!$this->getFileSystem()->exists($indexPath)) {
+            $indexContent = "<?php\n// Directory listing disabled\nheader('HTTP/1.0 403 Forbidden');\nexit;\n";
+            
+            try {
+                file_put_contents($indexPath, $indexContent);
+            } catch (Exception $e) {
+                throw new Exception('Cannot create index.php security file: ' . $e->getMessage());
+            }
+        }
     }
 } 

@@ -2777,9 +2777,8 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
      */
     private function getServerUploadsPath(): string
     {
-        // Use admin directory for better security - each installation has unique admin folder name
-        $adminDir = $this->backupContainer->getProperty(BackupContainer::PS_ADMIN_PATH);
-        return $adminDir . DIRECTORY_SEPARATOR . 'ps_copia_uploads';
+        // Use the uploads path defined in BackupContainer for consistency
+        return $this->backupContainer->getProperty(BackupContainer::UPLOADS_PATH);
     }
 
     /**
@@ -2790,40 +2789,16 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
      */
     private function ensureUploadsDirectoryExists(string $uploadsPath): void
     {
-        // Crear directorio si no existe
+        // The uploads directory and security files are now automatically created
+        // by BackupContainer::initDirectories() when the module is used
+        // This method just ensures the directory exists and is writable
+        
         if (!is_dir($uploadsPath)) {
-            if (!mkdir($uploadsPath, 0755, true)) {
-                throw new Exception('No se pudo crear el directorio de uploads: ' . $uploadsPath);
-            }
+            throw new Exception('El directorio de uploads no existe: ' . $uploadsPath . '. Esto debería haberse creado automáticamente al activar el módulo.');
         }
         
-        // Verificar y crear archivos de seguridad (siempre)
-        $htaccessPath = $uploadsPath . DIRECTORY_SEPARATOR . '.htaccess';
-        $indexPath = $uploadsPath . DIRECTORY_SEPARATOR . 'index.php';
-        
-        // Crear archivo .htaccess si no existe
-        if (!file_exists($htaccessPath)) {
-            $htaccessContent = "# Deny direct access to uploads\n";
-            $htaccessContent .= "Order Deny,Allow\n";
-            $htaccessContent .= "Deny from all\n";
-            $htaccessContent .= "# Allow only from admin\n";
-            $htaccessContent .= "<Files \"*.zip\">\n";
-            $htaccessContent .= "    Order Allow,Deny\n";
-            $htaccessContent .= "    Allow from all\n";
-            $htaccessContent .= "</Files>\n";
-            
-            if (!file_put_contents($htaccessPath, $htaccessContent)) {
-                throw new Exception('No se pudo crear el archivo .htaccess de seguridad');
-            }
-        }
-        
-        // Crear archivo index.php si no existe
-        if (!file_exists($indexPath)) {
-            $indexContent = "<?php\n// Directory listing disabled\nheader('HTTP/1.0 403 Forbidden');\nexit;\n";
-            
-            if (!file_put_contents($indexPath, $indexContent)) {
-                throw new Exception('No se pudo crear el archivo index.php de seguridad');
-            }
+        if (!is_writable($uploadsPath)) {
+            throw new Exception('El directorio de uploads no tiene permisos de escritura: ' . $uploadsPath);
         }
     }
 

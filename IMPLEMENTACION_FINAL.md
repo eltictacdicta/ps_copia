@@ -85,7 +85,7 @@ Deny from all
 ```bash
 # Usuario sube archivo por FTP/SFTP
 sftp usuario@servidor.com
-cd /path/to/prestashop/modules/ps_copia/backups/uploads/
+cd /path/to/prestashop/[admin_folder]/ps_copia/uploads/
 put mi_backup_grande.zip
 ```
 

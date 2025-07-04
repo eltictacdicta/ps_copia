@@ -16,7 +16,7 @@ Se ha implementado una **mejora crítica de seguridad** que mueve el directorio 
 
 ### **DESPUÉS (Ubicación Segura):**
 ```
-/[admin_folder]/ps_copia_uploads/
+/[admin_folder]/ps_copia/uploads/
 ```
 - ✅ **Ruta impredecible** (cada instalación tiene admin único)
 - ✅ **Ubicación dentro del directorio admin**
@@ -56,7 +56,7 @@ private function getServerUploadsPath(): string
 {
     // Use admin directory for better security - each installation has unique admin folder name
     $adminDir = $this->backupContainer->getProperty(BackupContainer::PS_ADMIN_PATH);
-    return $adminDir . DIRECTORY_SEPARATOR . 'ps_copia_uploads';
+    return $adminDir . DIRECTORY_SEPARATOR . 'ps_copia' . DIRECTORY_SEPARATOR . 'uploads';
 }
 ```
 
@@ -72,14 +72,14 @@ private function getServerUploadsPath(): string
 ```bash
 # Conectar por SFTP
 sftp usuario@tu-servidor.com
-cd /path/to/prestashop/[admin_folder]/ps_copia_uploads/
+cd /path/to/prestashop/[admin_folder]/ps_copia/uploads/
 put mi_backup_grande.zip
 exit
 ```
 
 ### **Ejemplo Real:**
 ```bash
-cd /var/www/html/admin962ol7kiyoope7y5o3p/ps_copia_uploads/
+cd /var/www/html/admin962ol7kiyoope7y5o3p/ps_copia/uploads/
 ```
 
 ## 🚀 **Migración Automática**

@@ -19,7 +19,7 @@ El módulo ps_copia ahora tiene una **solución completa** para importar backups
 ### **Backend (PHP)**
 Se añadieron 3 nuevas acciones AJAX:
 
-1. **`scan_server_uploads`** - Escanea directorio `/backups/uploads/`
+1. **`scan_server_uploads`** - Escanea directorio `/[admin_folder]/ps_copia/uploads/`
 2. **`import_from_server`** - Importa archivo del servidor
 3. **`delete_server_upload`** - Elimina archivo del servidor
 
@@ -38,7 +38,7 @@ Se añadieron 3 nuevas acciones AJAX:
 ## 📂 **Estructura de Archivos**
 
 ```
-/modules/ps_copia/backups/uploads/
+/[admin_folder]/ps_copia/uploads/
 ├── .htaccess          # Protección automática
 ├── index.php          # Prevenir listado
 └── [archivos_zip]     # Backups subidos por FTP
@@ -47,7 +47,7 @@ Se añadieron 3 nuevas acciones AJAX:
 ## 🚀 **Flujo de Trabajo**
 
 ### **Para el Usuario:**
-1. **Subir ZIP por FTP/SFTP** → `./backups/uploads/`
+1. **Subir ZIP por FTP/SFTP** → `/[admin_folder]/ps_copia/uploads/`
 2. **Abrir ps_copia** → Admin PrestaShop
 3. **Clic "Importar desde Servidor"**
 4. **Escanear archivos** disponibles
