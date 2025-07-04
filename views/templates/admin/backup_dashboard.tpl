@@ -136,13 +136,24 @@
                 <button type="button" class="close" data-dismiss="modal">&times;</button>
                 <h4 class="modal-title">
                     <i class="icon-warning-sign text-warning"></i>
-                    Confirmar Restauración
+                    Confirmar Restauración Completa con Migración
                 </h4>
             </div>
             <div class="modal-body">
                 <div class="alert alert-warning">
                     <strong><i class="icon-warning-sign"></i> ADVERTENCIA:</strong> Esta acción restaurará completamente tu tienda desde el backup seleccionado.
                 </div>
+                
+                <!-- Nuevas características automáticas -->
+                <div class="well well-sm">
+                    <h5><i class="icon-magic text-success"></i> Se aplicará automáticamente:</h5>
+                    <ul class="list-unstyled" style="margin: 0;">
+                        <li><i class="icon-check text-success"></i> <strong>URLs:</strong> Se detectan y cambian automáticamente</li>
+                        <li><i class="icon-check text-success"></i> <strong>Carpeta Admin:</strong> Se detecta automáticamente del backup</li>
+                        <li><i class="icon-check text-success"></i> <strong>Base de Datos:</strong> Se mantiene la configuración actual</li>
+                    </ul>
+                </div>
+                
                 <p>¿Estás seguro de que quieres restaurar desde: <strong id="restore-backup-name"></strong>?</p>
                 <ul class="text-danger">
                     <li>Se sobrescribirán <strong>TODOS</strong> los archivos actuales</li>
@@ -154,7 +165,7 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-default" data-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-warning" id="confirmRestoreBtn">
-                    <i class="icon-upload"></i> Sí, Restaurar Ahora
+                    <i class="icon-upload"></i> Sí, Restaurar con Migración
                 </button>
             </div>
         </div>
@@ -485,7 +496,7 @@ $(document).ready(function() {
                 // Restaurar completo (principal)
                 html += '<button class="btn btn-sm btn-primary restore-complete-btn" ';
                 html += 'data-backup-name="' + backup.name + '" style="margin-right: 5px;">';
-                html += '<i class="icon-upload"></i> Restaurar Completo';
+                html += '<i class="icon-magic"></i> Restaurar Completo';
                 html += '</button><br><br>';
                 
                 // Botones de restauración parcial (más pequeños)
@@ -631,7 +642,7 @@ $(document).ready(function() {
                 console.error('Error AJAX:', {xhr: xhr, status: status, error: error});
             },
             complete: function() {
-                $btn.prop('disabled', false).html('<i class="icon-upload"></i> Restaurar Completo');
+                $btn.prop('disabled', false).html('<i class="icon-magic"></i> Restaurar Completo');
                 selectedBackupForRestore = null;
             }
         });

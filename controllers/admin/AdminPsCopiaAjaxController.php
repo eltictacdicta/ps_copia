@@ -904,17 +904,66 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         $this->backupContainer->validateBackupFile($backupInfo['database_file']);
         $this->backupContainer->validateBackupFile($backupInfo['files_file']);
 
-        $this->logger->info("Starting complete restoration: database + files");
+        $this->logger->info("Starting complete restoration with automatic migration: database + files");
 
-        // First restore database
-        $this->logger->info("Restoring database from: " . $backupInfo['database_file']);
-        $this->restoreDatabase($backupInfo['database_file']);
+        // Configuración automática de migración (igual que en MIGRAR DESDE OTRO PRESTASHOP)
+        $migrationConfig = [
+            // URLs siempre habilitadas con autodetección (valor predeterminado inteligente)
+            'migrate_urls' => true,
+            'old_url' => '',
+            'new_url' => '',
+            // Admin directory siempre deshabilitado (se preserva del backup)
+            'migrate_admin_dir' => false,
+            'old_admin_dir' => '',
+            'new_admin_dir' => '',
+            // Preserve DB config siempre obligatorio
+            'preserve_db_config' => true,
+            'configurations' => []
+        ];
 
-        // Then restore files
-        $this->logger->info("Restoring files from: " . $backupInfo['files_file']);
-        $this->restoreFiles($backupInfo['files_file']);
+        $this->logger->info("Applying automatic migration configuration for complete restore", [
+            'migrate_urls' => $migrationConfig['migrate_urls'],
+            'migrate_admin_dir' => $migrationConfig['migrate_admin_dir'],
+            'preserve_db_config' => $migrationConfig['preserve_db_config']
+        ]);
 
-        $this->logger->info("Complete backup restored successfully");
+        // Get full paths to backup files
+        $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
+        $dbFilePath = $backupDir . DIRECTORY_SEPARATOR . $backupInfo['database_file'];
+        $filesFilePath = $backupDir . DIRECTORY_SEPARATOR . $backupInfo['files_file'];
+
+        // Apply database migration (includes automatic URL detection and migration)
+        $this->logger->info("Restoring database with automatic migration from: " . $backupInfo['database_file']);
+        
+        if (class_exists('PrestaShop\Module\PsCopia\Migration\DatabaseMigrator')) {
+            $dbMigrator = new \PrestaShop\Module\PsCopia\Migration\DatabaseMigrator($this->backupContainer, $this->logger);
+            $dbMigrator->migrateDatabase($dbFilePath, $migrationConfig);
+        } else {
+            // Fallback to standard restore if migration class not available
+            $this->logger->warning("DatabaseMigrator class not found, falling back to standard restore");
+            $this->restoreDatabase($backupInfo['database_file']);
+        }
+
+        // Restore files (preserving admin directory structure from backup)
+        $this->logger->info("Restoring files with preserved admin directory from: " . $backupInfo['files_file']);
+        
+        if (class_exists('PrestaShop\Module\PsCopia\Migration\FilesMigrator')) {
+            try {
+                $filesMigrator = new \PrestaShop\Module\PsCopia\Migration\FilesMigrator($this->backupContainer, $this->logger);
+                $filesMigrator->migrateFiles($filesFilePath, $migrationConfig);
+            } catch (Exception $e) {
+                $this->logger->error("Files migration failed, falling back to simple restoration: " . $e->getMessage());
+                // Fallback: try to restore files without migration
+                $this->logger->info("Attempting fallback files restoration without migration");
+                $this->restoreFiles($backupInfo['files_file']);
+            }
+        } else {
+            // Fallback to standard restore if migration class not available
+            $this->logger->warning("FilesMigrator class not found, falling back to standard restore");
+            $this->restoreFiles($backupInfo['files_file']);
+        }
+
+        $this->logger->info("Complete backup restored successfully with automatic migration applied");
     }
 
     /**
