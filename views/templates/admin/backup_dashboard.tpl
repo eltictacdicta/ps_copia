@@ -348,11 +348,11 @@
 
 <script>
 {literal}
+// Variables globales para uso en todo el script
+var ajaxUrl = {/literal}"{$link->getAdminLink('AdminPsCopiaAjax')|escape:'html':'UTF-8'}"{literal};
+var selectedBackupForRestore = null;
+
 $(document).ready(function() {
-{/literal}
-    var ajaxUrl = "{$link->getAdminLink('AdminPsCopiaAjax')|escape:'html':'UTF-8'}";
-    var selectedBackupForRestore = null;
-{literal}
 
     // Crear backup completo
     $('#createBackupBtn').on('click', function() {
@@ -1211,66 +1211,8 @@ $(document).ready(function() {
         $('#migration-progress .progress-bar').css('width', '0%');
         $('#confirmMigrationBtn').prop('disabled', false).html('<i class="icon-magic"></i> Migrar Backup');
     });
-});
-{/literal}
-</script>
-
-<!-- Modal para uploads del servidor -->
-<div class="modal fade" id="serverUploadsModal" tabindex="-1" role="dialog">
-    <div class="modal-dialog modal-lg" role="document">
-        <div class="modal-content">
-            <div class="modal-header">
-                <button type="button" class="close" data-dismiss="modal">&times;</button>
-                <h4 class="modal-title">
-                    <i class="icon-hdd text-info"></i>
-                    Importar desde Servidor
-                </h4>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-info">
-                    <strong><i class="icon-info-circle"></i> ¿Cómo funciona?</strong><br>
-                    Esta función escanea la carpeta del directorio admin en busca de archivos ZIP subidos directamente al servidor mediante FTP/SFTP.
-                </div>
-                
-                <div class="well well-sm">
-                    <strong><i class="icon-lightbulb-o"></i> Para archivos grandes:</strong>
-                    <ol style="margin: 5px 0;">
-                        <li>Sube tu archivo ZIP mediante FTP/SFTP a la carpeta <code>/[admin_folder]/ps_copia/uploads/</code></li>
-                        <li>Usa el botón "Escanear" para detectar archivos</li>
-                        <li>Selecciona e importa el archivo deseado</li>
-                    </ol>
-                    <div class="alert alert-warning" style="margin-top: 10px; margin-bottom: 0;">
-                        <small><strong><i class="icon-shield"></i> Seguridad mejorada:</strong> Los uploads ahora se almacenan en el directorio admin (ruta única por instalación) para mayor protección.</small>
-                    </div>
-                </div>
-
-                <div class="row">
-                    <div class="col-md-6">
-                        <button id="scanServerUploadsBtn" class="btn btn-info btn-block">
-                            <i class="icon-search"></i> Escanear Archivos
-                        </button>
-                    </div>
-                    <div class="col-md-6">
-                        <p class="text-muted"><small>Ruta: <span id="uploads-path-display">-</span></small></p>
-                    </div>
-                </div>
-
-                <hr>
-
-                <div id="server-uploads-list">
-                    <p class="text-center text-muted">Haz clic en "Escanear Archivos" para ver los uploads disponibles.</p>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-default" data-dismiss="modal">Cerrar</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-{literal}
-<script>
-$(document).ready(function() {
+    // === FUNCIONALIDAD DE UPLOADS DEL SERVIDOR ===
+    
     // Manejar botón de uploads del servidor
     $('#serverUploadsBtn').on('click', function() {
         $('#serverUploadsModal').modal('show');
@@ -1610,5 +1552,59 @@ $(document).ready(function() {
         });
     });
 });
+{/literal}
 </script>
-{/literal} 
+
+<!-- Modal para uploads del servidor -->
+<div class="modal fade" id="serverUploadsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">
+                    <i class="icon-hdd text-info"></i>
+                    Importar desde Servidor
+                </h4>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <strong><i class="icon-info-circle"></i> ¿Cómo funciona?</strong><br>
+                    Esta función escanea la carpeta del directorio admin en busca de archivos ZIP subidos directamente al servidor mediante FTP/SFTP.
+                </div>
+                
+                <div class="well well-sm">
+                    <strong><i class="icon-lightbulb-o"></i> Para archivos grandes:</strong>
+                    <ol style="margin: 5px 0;">
+                        <li>Sube tu archivo ZIP mediante FTP/SFTP a la carpeta <code>/[admin_folder]/ps_copia/uploads/</code></li>
+                        <li>Usa el botón "Escanear" para detectar archivos</li>
+                        <li>Selecciona e importa el archivo deseado</li>
+                    </ol>
+                    <div class="alert alert-warning" style="margin-top: 10px; margin-bottom: 0;">
+                        <small><strong><i class="icon-shield"></i> Seguridad mejorada:</strong> Los uploads ahora se almacenan en el directorio admin (ruta única por instalación) para mayor protección.</small>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <button id="scanServerUploadsBtn" class="btn btn-info btn-block">
+                            <i class="icon-search"></i> Escanear Archivos
+                        </button>
+                    </div>
+                    <div class="col-md-6">
+                        <p class="text-muted"><small>Ruta: <span id="uploads-path-display">-</span></small></p>
+                    </div>
+                </div>
+
+                <hr>
+
+                <div id="server-uploads-list">
+                    <p class="text-center text-muted">Haz clic en "Escanear Archivos" para ver los uploads disponibles.</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+ 
