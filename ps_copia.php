@@ -40,7 +40,7 @@ class Ps_copia extends Module
         $this->name = 'ps_copia';
         $this->tab = 'administration';
         $this->author = 'PrestaShop';
-        $this->version = '1.0.1';
+        $this->version = '1.1.0';
         $this->need_instance = 1;
         $this->module_key = '926bc3e16738b7b834f37fc63d59dcf8';
 
