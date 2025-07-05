@@ -143,7 +143,7 @@ Desarrollo: admin_dev_local
 
 ### **Ubicación de Logs**
 ```
-📁 /[admin_folder]/ps_copia/logs/
+📁 /[admin_folder]/backup_assistant/logs/
 ├── backup_YYYY-MM-DD.log    # Logs diarios
 └── backup_latest.log        # Log más reciente
 ```

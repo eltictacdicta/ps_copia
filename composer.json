@@ -1,7 +1,7 @@
 {
-    "name": "prestashop/ps_copia",
-    "description": "PrestaShop module ps_copia",
-    "homepage": "https://github.com/PrestaShop/ps_copia",
+    "name": "prestashop/backup_assistant",
+    "description": "PrestaShop module backup_assistant",
+    "homepage": "https://github.com/PrestaShop/backup_assistant",
     "license": "AFL-3.0",
     "authors": [
         {
@@ -27,7 +27,7 @@
     "type": "prestashop-module",
     "autoload": {
         "psr-4": {
-            "PrestaShop\\Module\\PsCopia\\": "classes/"
+            "PrestaShop\\Module\\BackupAssistant\\": "classes/"
         }
     },
     "require-dev": {

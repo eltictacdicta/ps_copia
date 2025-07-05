@@ -1,8 +1,8 @@
-# Optimizaciones para Sitios Grandes - PS_Copia
+# Optimizaciones para Sitios Grandes - Backup Assistant
 
 ## Resumen de Mejoras Implementadas
 
-Este documento describe las optimizaciones implementadas en el módulo **ps_copia** para hacer que sea compatible con exportación/importación de sitios grandes sin depender de la configuración del servidor.
+Este documento describe las optimizaciones implementadas en el módulo **backup_assistant** para hacer que sea compatible con exportación/importación de sitios grandes sin depender de la configuración del servidor.
 
 ## Problemas Solucionados
 
@@ -205,6 +205,6 @@ ddev restart
 
 ## Conclusión
 
-Estas optimizaciones permiten que el módulo ps_copia maneje sitios de cualquier tamaño sin requerir cambios en la configuración del servidor. El sistema detecta automáticamente el tamaño del sitio y aplica la estrategia más apropiada, garantizando el éxito de la operación mientras mantiene un uso eficiente de los recursos del servidor.
+Estas optimizaciones permiten que el módulo backup_assistant maneje sitios de cualquier tamaño sin requerir cambios en la configuración del servidor. El sistema detecta automáticamente el tamaño del sitio y aplica la estrategia más apropiada, garantizando el éxito de la operación mientras mantiene un uso eficiente de los recursos del servidor.
 
 La implementación es completamente transparente para el usuario final y proporciona feedback detallado durante todo el proceso. 

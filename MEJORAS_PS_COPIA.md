@@ -1,8 +1,8 @@
-# Mejoras del Módulo ps_copia - Alineación con autoupgrade
+# Mejoras del Módulo backup_assistant - Alineación con autoupgrade
 
 ## ✅ Mejoras Implementadas
 
-### 1. **Archivo Principal del Módulo (ps_copia.php)**
+### 1. **Archivo Principal del Módulo (backup_assistant.php)**
 - ✅ **Verificación de requisitos**: Valida PHP version y extensiones necesarias
 - ✅ **Tipado estricto**: Implementado para compatibilidad con PHP 8
 - ✅ **Traducciones mejoradas**: Usando dominios de traducción modernos
@@ -70,15 +70,15 @@ $this->trans('Backup Assistant', [], 'Modules.Pscopia.Admin')
 ## 📋 Recomendaciones Adicionales
 
 ### **1. Sistema de Configuración**
-Crear `ps_copia/classes/Configuration/BackupConfiguration.php`:
+Crear `backup_assistant/classes/Configuration/BackupConfiguration.php`:
 ```php
 namespace PrestaShop\Module\PsCopia\Configuration;
 
 class BackupConfiguration
 {
-    const MAX_BACKUPS_TO_KEEP = 'PS_COPIA_MAX_BACKUPS';
-    const AUTO_CLEANUP_ENABLED = 'PS_COPIA_AUTO_CLEANUP';
-    const BACKUP_COMPRESSION = 'PS_COPIA_COMPRESSION';
+    const MAX_BACKUPS_TO_KEEP = 'BACKUP_ASSISTANT_MAX_BACKUPS';
+    const AUTO_CLEANUP_ENABLED = 'BACKUP_ASSISTANT_AUTO_CLEANUP';
+    const BACKUP_COMPRESSION = 'BACKUP_ASSISTANT_COMPRESSION';
     
     public function getMaxBackupsToKeep(): int
     {
@@ -128,7 +128,7 @@ class BackupState
 ```
 
 ### **4. Archivos de Traducción**
-Crear `ps_copia/translations/es.xlf`:
+Crear `backup_assistant/translations/es.xlf`:
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <xliff version="1.2">
@@ -144,7 +144,7 @@ Crear `ps_copia/translations/es.xlf`:
 ```
 
 ### **5. Tests Unitarios**
-Crear `ps_copia/tests/Unit/BackupContainerTest.php`:
+Crear `backup_assistant/tests/Unit/BackupContainerTest.php`:
 ```php
 namespace Tests\Unit\PrestaShop\Module\PsCopia;
 
@@ -184,11 +184,11 @@ public function createBackup(string $type, ?string $customName = null): array
 
 ### **7. Hooks Adicionales**
 ```php
-// En ps_copia.php
+// En backup_assistant.php
 public function hookActionAdminControllerSetMedia($params): void
 {
     // Agregar CSS/JS específicos del módulo
-    if ($this->context->controller instanceof AdminPsCopiaController) {
+    if ($this->context->controller instanceof AdminBackupAssistantController) {
         $this->context->controller->addCSS($this->_path . 'views/css/admin.css');
         $this->context->controller->addJS($this->_path . 'views/js/admin.js');
     }
@@ -196,7 +196,7 @@ public function hookActionAdminControllerSetMedia($params): void
 ```
 
 ### **8. Comando CLI**
-Crear `ps_copia/cli/backup.php`:
+Crear `backup_assistant/cli/backup.php`:
 ```php
 #!/usr/bin/env php
 <?php
@@ -210,22 +210,22 @@ Para testear en tu entorno DDEV:
 
 ```bash
 # Instalar el módulo mejorado
-ddev exec php bin/console prestashop:module:install ps_copia
+ddev exec php bin/console prestashop:module:install backup_assistant
 
 # Verificar logs
-ddev exec tail -f modules/ps_copia/logs/backup_$(date +%Y-%m-%d).log
+ddev exec tail -f modules/backup_assistant/logs/backup_$(date +%Y-%m-%d).log
 
 # Limpiar cache después de cambios
 ddev exec php bin/console cache:clear
 
 # Verificar permisos
-ddev exec chmod -R 755 modules/ps_copia/
-ddev exec chown -R www-data:www-data modules/ps_copia/
+ddev exec chmod -R 755 modules/backup_assistant/
+ddev exec chown -R www-data:www-data modules/backup_assistant/
 ```
 
-## 📊 Comparación Final: ps_copia vs autoupgrade
+## 📊 Comparación Final: backup_assistant vs autoupgrade
 
-| Característica | autoupgrade | ps_copia (mejorado) | Estado |
+| Característica | autoupgrade | backup_assistant (mejorado) | Estado |
 |----------------|-------------|---------------------|--------|
 | Tipado PHP 8 | ✅ | ✅ | ✅ Implementado |
 | Sistema de tareas | ✅ Complejo | ✅ Simplificado | ✅ Adaptado |
@@ -240,7 +240,7 @@ ddev exec chown -R www-data:www-data modules/ps_copia/
 
 ## ✅ Conclusión
 
-El módulo `ps_copia` ahora está **significativamente mejorado** y alineado con las mejores prácticas de `autoupgrade` y los estándares de PrestaShop 8. Las mejoras principales incluyen:
+El módulo `backup_assistant` ahora está **significativamente mejorado** y alineado con las mejores prácticas de `autoupgrade` y los estándares de PrestaShop 8. Las mejoras principales incluyen:
 
 1. **Arquitectura robusta** similar a autoupgrade pero simplificada
 2. **Manejo de errores profesional** con logging detallado

@@ -18,11 +18,11 @@
  * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
  */
 
-namespace PrestaShop\Module\PsCopia\Task;
+namespace PrestaShop\Module\BackupAssistant\Task;
 
-use PrestaShop\Module\PsCopia\BackupContainer;
-use PrestaShop\Module\PsCopia\Logger\BackupLogger;
-use PrestaShop\Module\PsCopia\UpgradeTools\Translator;
+use PrestaShop\Module\BackupAssistant\BackupContainer;
+use PrestaShop\Module\BackupAssistant\Logger\BackupLogger;
+use PrestaShop\Module\BackupAssistant\UpgradeTools\Translator;
 use Exception;
 
 /**

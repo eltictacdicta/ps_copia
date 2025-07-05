@@ -18,13 +18,13 @@
  * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
  */
 
-use PrestaShop\Module\PsCopia\BackupContainer;
-use PrestaShop\Module\PsCopia\Logger\BackupLogger;
-use PrestaShop\Module\PsCopia\VersionUtils;
+use PrestaShop\Module\BackupAssistant\BackupContainer;
+use PrestaShop\Module\BackupAssistant\Logger\BackupLogger;
+use PrestaShop\Module\BackupAssistant\VersionUtils;
 
-class AdminPsCopiaAjaxController extends ModuleAdminController
+class AdminBackupAssistantAjaxController extends ModuleAdminController
 {
-    /** @var Ps_copia */
+    /** @var BackupAssistant */
     public $module;
 
     /** @var bool */
@@ -73,11 +73,11 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
 
         // Manually load critical classes if not available
         $classesToLoad = [
-            'PrestaShop\Module\PsCopia\VersionUtils' => '/../../classes/VersionUtils.php',
-            'PrestaShop\Module\PsCopia\BackupContainer' => '/../../classes/BackupContainer.php',
-            'PrestaShop\Module\PsCopia\Logger\BackupLogger' => '/../../classes/Logger/BackupLogger.php',
-            'PrestaShop\Module\PsCopia\Migration\DatabaseMigrator' => '/../../classes/Migration/DatabaseMigrator.php',
-            'PrestaShop\Module\PsCopia\Migration\FilesMigrator' => '/../../classes/Migration/FilesMigrator.php',
+            'PrestaShop\Module\BackupAssistant\VersionUtils' => '/../../classes/VersionUtils.php',
+            'PrestaShop\Module\BackupAssistant\BackupContainer' => '/../../classes/BackupContainer.php',
+            'PrestaShop\Module\BackupAssistant\Logger\BackupLogger' => '/../../classes/Logger/BackupLogger.php',
+            'PrestaShop\Module\BackupAssistant\Migration\DatabaseMigrator' => '/../../classes/Migration/DatabaseMigrator.php',
+            'PrestaShop\Module\BackupAssistant\Migration\FilesMigrator' => '/../../classes/Migration/FilesMigrator.php',
         ];
 
         foreach ($classesToLoad as $className => $filePath) {
@@ -631,7 +631,7 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                 // Si el archivo es demasiado grande para mantenerlo en memoria,
                 // guardarlo temporalmente
                 if (strlen($content) > $maxMemory) {
-                    $tempFile = tempnam(sys_get_temp_dir(), 'ps_copia_large_');
+                    $tempFile = tempnam(sys_get_temp_dir(), 'backup_assistant_large_');
                     file_put_contents($tempFile, $content);
                     $content = ''; // Limpiar memoria
                     
@@ -935,8 +935,8 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         // Apply database migration (includes automatic URL detection and migration)
         $this->logger->info("Restoring database with automatic migration from: " . $backupInfo['database_file']);
         
-        if (class_exists('PrestaShop\Module\PsCopia\Migration\DatabaseMigrator')) {
-            $dbMigrator = new \PrestaShop\Module\PsCopia\Migration\DatabaseMigrator($this->backupContainer, $this->logger);
+        if (class_exists('PrestaShop\Module\BackupAssistant\Migration\DatabaseMigrator')) {
+            $dbMigrator = new \PrestaShop\Module\BackupAssistant\Migration\DatabaseMigrator($this->backupContainer, $this->logger);
             $dbMigrator->migrateDatabase($dbFilePath, $migrationConfig);
         } else {
             // Fallback to standard restore if migration class not available
@@ -947,9 +947,9 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         // Restore files (preserving admin directory structure from backup)
         $this->logger->info("Restoring files with preserved admin directory from: " . $backupInfo['files_file']);
         
-        if (class_exists('PrestaShop\Module\PsCopia\Migration\FilesMigrator')) {
+        if (class_exists('PrestaShop\Module\BackupAssistant\Migration\FilesMigrator')) {
             try {
-                $filesMigrator = new \PrestaShop\Module\PsCopia\Migration\FilesMigrator($this->backupContainer, $this->logger);
+                $filesMigrator = new \PrestaShop\Module\BackupAssistant\Migration\FilesMigrator($this->backupContainer, $this->logger);
                 $filesMigrator->migrateFiles($filesFilePath, $migrationConfig);
             } catch (Exception $e) {
                 $this->logger->error("Files migration failed, falling back to simple restoration: " . $e->getMessage());
@@ -1059,7 +1059,7 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         }
 
         // Extract to temporary directory first
-        $tempDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ps_copia_restore_' . time();
+        $tempDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'backup_assistant_restore_' . time();
         if (!mkdir($tempDir, 0755, true)) {
             throw new Exception('Cannot create temporary directory: ' . $tempDir);
         }
@@ -2113,9 +2113,9 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
     private function getDownloadUrl(string $filePath): string
     {
         $filename = basename($filePath);
-        return Context::getContext()->link->getAdminLink('AdminPsCopiaAjax') . 
+        return Context::getContext()->link->getAdminLink('AdminBackupAssistantAjax') . 
                '&action=download_export&file=' . urlencode($filename) . 
-               '&token=' . Tools::getAdminTokenLite('AdminPsCopiaAjax');
+               '&token=' . Tools::getAdminTokenLite('AdminBackupAssistantAjax');
     }
 
     /**
@@ -2391,8 +2391,8 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             // Siempre ejecutar migración de base de datos para actualizar shop_url al menos
             $this->logger->info("Performing database migration");
             
-            if (class_exists('PrestaShop\Module\PsCopia\Migration\DatabaseMigrator')) {
-                $dbMigrator = new \PrestaShop\Module\PsCopia\Migration\DatabaseMigrator($this->backupContainer, $this->logger);
+            if (class_exists('PrestaShop\Module\BackupAssistant\Migration\DatabaseMigrator')) {
+                $dbMigrator = new \PrestaShop\Module\BackupAssistant\Migration\DatabaseMigrator($this->backupContainer, $this->logger);
                 $dbMigrator->migrateDatabase($dbFile, $migrationConfig);
             } else {
                 throw new Exception('DatabaseMigrator class not found');
@@ -2407,8 +2407,8 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                 ]);
                 
                 try {
-                    if (class_exists('PrestaShop\Module\PsCopia\Migration\FilesMigrator')) {
-                        $filesMigrator = new \PrestaShop\Module\PsCopia\Migration\FilesMigrator($this->backupContainer, $this->logger);
+                                if (class_exists('PrestaShop\Module\BackupAssistant\Migration\FilesMigrator')) {
+                $filesMigrator = new \PrestaShop\Module\BackupAssistant\Migration\FilesMigrator($this->backupContainer, $this->logger);
                         $filesMigrator->migrateFiles($filesFile, $migrationConfig);
                     } else {
                         throw new Exception('FilesMigrator class not found');
@@ -2493,7 +2493,7 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         }
 
         // Extract to temporary directory first
-        $tempDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ps_copia_restore_' . time();
+        $tempDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'backup_assistant_restore_' . time();
         if (!mkdir($tempDir, 0755, true)) {
             throw new Exception('Cannot create temporary directory: ' . $tempDir);
         }
@@ -2640,7 +2640,7 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         $startTime = microtime(true);
         
         // Log específico para debugging
-        error_log("PS_COPIA: Iniciando escaneo de uploads del servidor - " . date('Y-m-d H:i:s'));
+        error_log("BACKUP_ASSISTANT: Iniciando escaneo de uploads del servidor - " . date('Y-m-d H:i:s'));
 
         try {
             // Optimizar para operaciones potencialmente largas
@@ -2843,7 +2843,7 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                 'total_items' => count($files) - 2 // Excluir . y ..
             ]);
             
-            error_log("PS_COPIA: Directorio encontrado con " . (count($files) - 2) . " elementos");
+            error_log("BACKUP_ASSISTANT: Directorio encontrado con " . (count($files) - 2) . " elementos");
             
             $processedCount = 0;
             $validCount = 0;
@@ -3020,7 +3020,7 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                     strpos($filename, 'export') !== false ||
                     preg_match('/\d{4}-\d{2}-\d{2}/', $filename) || // Contiene fecha
                     preg_match('/\d{2}-\d{2}-\d{4}/', $filename) || // Otra formato de fecha
-                    strpos($filename, 'ps_copia') !== false ||
+                    strpos($filename, 'backup_assistant') !== false ||
                     strpos($filename, 'prestashop') !== false
                 );
                 

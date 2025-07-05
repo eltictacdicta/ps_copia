@@ -8,7 +8,7 @@ Se ha implementado una **mejora crítica de seguridad** que mueve el directorio 
 
 ### **ANTES (Ubicación Predecible):**
 ```
-/modules/ps_copia/backups/uploads/
+/modules/backup_assistant/backups/uploads/
 ```
 - ❌ **Ruta fácil de adivinar**
 - ❌ **Ubicación estándar** que cualquiera puede inferir
@@ -16,7 +16,7 @@ Se ha implementado una **mejora crítica de seguridad** que mueve el directorio 
 
 ### **DESPUÉS (Ubicación Segura):**
 ```
-/[admin_folder]/ps_copia/uploads/
+/[admin_folder]/backup_assistant/uploads/
 ```
 - ✅ **Ruta impredecible** (cada instalación tiene admin único)
 - ✅ **Ubicación dentro del directorio admin**
@@ -56,7 +56,7 @@ private function getServerUploadsPath(): string
 {
     // Use admin directory for better security - each installation has unique admin folder name
     $adminDir = $this->backupContainer->getProperty(BackupContainer::PS_ADMIN_PATH);
-    return $adminDir . DIRECTORY_SEPARATOR . 'ps_copia' . DIRECTORY_SEPARATOR . 'uploads';
+    return $adminDir . DIRECTORY_SEPARATOR . 'backup_assistant' . DIRECTORY_SEPARATOR . 'uploads';
 }
 ```
 
@@ -72,14 +72,14 @@ private function getServerUploadsPath(): string
 ```bash
 # Conectar por SFTP
 sftp usuario@tu-servidor.com
-cd /path/to/prestashop/[admin_folder]/ps_copia/uploads/
+cd /path/to/prestashop/[admin_folder]/backup_assistant/uploads/
 put mi_backup_grande.zip
 exit
 ```
 
 ### **Ejemplo Real:**
 ```bash
-cd /var/www/html/admin962ol7kiyoope7y5o3p/ps_copia/uploads/
+cd /var/www/html/admin962ol7kiyoope7y5o3p/backup_assistant/uploads/
 ```
 
 ## 🚀 **Migración Automática**
@@ -126,6 +126,6 @@ La migración se realizó automáticamente:
 
 ## 🎯 **Conclusión**
 
-Esta mejora de seguridad **reduce significativamente** la superficie de ataque del módulo ps_copia sin afectar su funcionalidad. Los uploads del servidor ahora están ubicados en una posición más segura y menos predecible, proporcionando una capa adicional de protección contra accesos no autorizados.
+Esta mejora de seguridad **reduce significativamente** la superficie de ataque del módulo backup_assistant sin afectar su funcionalidad. Los uploads del servidor ahora están ubicados en una posición más segura y menos predecible, proporcionando una capa adicional de protección contra accesos no autorizados.
 
 **¡La funcionalidad de uploads grandes sigue funcionando perfectamente, pero ahora es más segura!** 🔒 

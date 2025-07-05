@@ -1,11 +1,11 @@
-# 🔒 PS_Copia - Asistente de Copias de Seguridad para PrestaShop
+# 🔒 Backup Assistant - Asistente de Copias de Seguridad para PrestaShop
 
 ![Versión](https://img.shields.io/badge/versión-1.1.0-brightgreen.svg)
 ![PrestaShop](https://img.shields.io/badge/PrestaShop-1.7.0+-blue.svg)
 ![PHP](https://img.shields.io/badge/PHP-5.6+-purple.svg)
 ![Licencia](https://img.shields.io/badge/licencia-AFL--3.0-orange.svg)
 
-**PS_Copia** es un módulo avanzado de PrestaShop diseñado para crear y restaurar copias de seguridad completas de tu tienda online. Optimizado para sitios grandes y con funcionalidades avanzadas para garantizar una migración y backup seguros.
+**Backup Assistant** es un módulo avanzado de PrestaShop diseñado para crear y restaurar copias de seguridad completas de tu tienda online. Optimizado para sitios grandes y con funcionalidades avanzadas para garantizar una migración y backup seguros.
 
 ## 🚀 Características Principales
 
@@ -58,20 +58,20 @@
 ## 📦 Instalación
 
 ### **Método 1: Instalación Manual**
-1. Descarga el módulo y descomprime en `modules/ps_copia/`
+1. Descarga el módulo y descomprime en `modules/backup_assistant/`
 2. Ve a **Módulos > Gestor de Módulos** en tu admin
 3. Busca "Asistente de Copias de Seguridad"
 4. Haz clic en **Instalar**
 
 ### **Método 2: Composer**
 ```bash
-cd modules/ps_copia/
+cd modules/backup_assistant/
 composer install --optimize-autoloader
 ```
 
 ### **Verificación Post-Instalación**
 - ✅ Comprueba que aparece en **Herramientas > Asistente de Copias**
-- ✅ Verifica permisos de escritura en `/admin/ps_copia/`
+- ✅ Verifica permisos de escritura en `/admin/backup_assistant/`
 - ✅ Ejecuta la suite de pruebas: `php test_large_sites.php`
 
 ## 🎯 Uso del Módulo
@@ -90,7 +90,7 @@ composer install --optimize-autoloader
 3. Confirma la restauración
 
 #### **Archivos Grandes (>100MB):**
-1. Sube tu backup via **FTP/SFTP** a `/admin/ps_copia/uploads/`
+1. Sube tu backup via **FTP/SFTP** a `/admin/backup_assistant/uploads/`
 2. Clic en **"Importar desde Servidor"**
 3. Selecciona tu archivo de la lista
 4. Inicia la importación _(procesamiento optimizado automático)_
@@ -117,7 +117,7 @@ composer install --optimize-autoloader
 
 ### **Gestión de Uploads Servidor**
 ```
-/admin/ps_copia/uploads/
+/admin/backup_assistant/uploads/
 ├── .htaccess          # Protección automática
 ├── index.php          # Prevenir listado
 └── backup_sitio.zip   # Tu backup grande
@@ -125,7 +125,7 @@ composer install --optimize-autoloader
 
 ### **Suite de Pruebas Automatizadas**
 ```bash
-cd modules/ps_copia/
+cd modules/backup_assistant/
 php test_large_sites.php
 
 ✅ testMemoryLimitParsing      - OK
@@ -168,10 +168,10 @@ php test_large_sites.php
 ### **Verificación de Estado**
 ```bash
 # Comprobar configuración del módulo
-curl -X POST admin/index.php?controller=AdminPsCopiaAjax&action=scan_server_uploads
+curl -X POST admin/index.php?controller=AdminBackupAssistantAjax&action=scan_server_uploads
 
 # Verificar permisos
-ls -la admin/ps_copia/uploads/
+ls -la admin/backup_assistant/uploads/
 ```
 
 ## 📊 Métricas de Rendimiento

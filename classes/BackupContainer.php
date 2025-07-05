@@ -18,10 +18,10 @@
  * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
  */
 
-namespace PrestaShop\Module\PsCopia;
+namespace PrestaShop\Module\BackupAssistant;
 
 use Exception;
-use PrestaShop\Module\PsCopia\UpgradeTools\Translator;
+use PrestaShop\Module\BackupAssistant\UpgradeTools\Translator;
 use Symfony\Component\Filesystem\Filesystem;
 use Context;
 use Db;
@@ -68,7 +68,7 @@ class BackupContainer
      */
     private $moduleSubDir;
 
-    public function __construct(string $psRootDir, string $adminDir, string $moduleSubDir = 'ps_copia')
+    public function __construct(string $psRootDir, string $adminDir, string $moduleSubDir = 'backup_assistant')
     {
         $this->psRootDir = rtrim($psRootDir, DIRECTORY_SEPARATOR);
         $this->adminDir = rtrim($adminDir, DIRECTORY_SEPARATOR);
@@ -132,7 +132,7 @@ class BackupContainer
             }
             
             $this->translator = new Translator(
-                $this->psRootDir . DIRECTORY_SEPARATOR . 'modules' . DIRECTORY_SEPARATOR . 'ps_copia' . DIRECTORY_SEPARATOR . 'translations' . DIRECTORY_SEPARATOR,
+                $this->psRootDir . DIRECTORY_SEPARATOR . 'modules' . DIRECTORY_SEPARATOR . 'backup_assistant' . DIRECTORY_SEPARATOR . 'translations' . DIRECTORY_SEPARATOR,
                 $languageCode
             );
         }
@@ -449,7 +449,7 @@ class BackupContainer
                 $deleted++;
             } catch (Exception $e) {
                 // Log error but continue
-                error_log("PS_Copia: Could not delete old backup {$backup['name']}: " . $e->getMessage());
+                error_log("BackupAssistant: Could not delete old backup {$backup['name']}: " . $e->getMessage());
             }
         }
         

@@ -349,7 +349,7 @@
 <script>
 {literal}
 // Variables globales para uso en todo el script
-var ajaxUrl = {/literal}"{$link->getAdminLink('AdminPsCopiaAjax')|escape:'html':'UTF-8'}"{literal};
+var ajaxUrl = {/literal}"{$link->getAdminLink('AdminBackupAssistantAjax')|escape:'html':'UTF-8'}"{literal};
 var selectedBackupForRestore = null;
 
 $(document).ready(function() {
@@ -381,7 +381,7 @@ $(document).ready(function() {
                 backup_type: 'complete',
                 ajax: true,
 {/literal}
-                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminBackupAssistantAjax')}{/if}"
 {literal}
             },
             success: function(response) {
@@ -445,7 +445,7 @@ $(document).ready(function() {
                 action: 'list_backups',
                 ajax: true,
 {/literal}
-                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminBackupAssistantAjax')}{/if}"
 {literal}
             },
             success: function(response) {
@@ -594,7 +594,7 @@ $(document).ready(function() {
                 backup_type: 'complete',
                 ajax: true,
 {/literal}
-                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminBackupAssistantAjax')}{/if}"
 {literal}
             },
             success: function(response) {
@@ -670,7 +670,7 @@ $(document).ready(function() {
                 backup_name: backupName,
                 ajax: true,
 {/literal}
-                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminBackupAssistantAjax')}{/if}"
 {literal}
             },
             success: function(response) {
@@ -715,7 +715,7 @@ $(document).ready(function() {
                 backup_name: backupName,
                 ajax: true,
 {/literal}
-                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminBackupAssistantAjax')}{/if}"
 {literal}
             },
             success: function(response) {
@@ -759,7 +759,7 @@ $(document).ready(function() {
                 backup_name: backupName,
                 ajax: true,
 {/literal}
-                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminBackupAssistantAjax')}{/if}"
 {literal}
             },
             success: function(response) {
@@ -804,7 +804,7 @@ $(document).ready(function() {
                 backup_type: backupType,
                 ajax: true,
 {/literal}
-                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminBackupAssistantAjax')}{/if}"
 {literal}
             },
             success: function(response) {
@@ -891,7 +891,7 @@ $(document).ready(function() {
                 backup_name: backupName,
                 ajax: true,
 {/literal}
-                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminBackupAssistantAjax')}{/if}"
 {literal}
             },
             success: function(response) {
@@ -971,7 +971,7 @@ $(document).ready(function() {
         formData.append('action', 'import_backup');
         formData.append('ajax', 'true');
 {/literal}
-        formData.append('token', "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}");
+        formData.append('token', "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminBackupAssistantAjax')}{/if}");
 {literal}
 
         // Timeout dinámico basado en el tamaño del archivo
@@ -1122,7 +1122,7 @@ $(document).ready(function() {
         formData.append('action', 'import_backup_with_migration');
         formData.append('ajax', 'true');
 {/literal}
-        formData.append('token', "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}");
+        formData.append('token', "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminBackupAssistantAjax')}{/if}");
 {literal}
 
         $.ajax({
@@ -1256,7 +1256,7 @@ $(document).ready(function() {
                 action: 'scan_server_uploads',
                 ajax: true,
 {/literal}
-                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminBackupAssistantAjax')}{/if}"
 {literal}
             },
             success: function(response) {
@@ -1330,7 +1330,7 @@ $(document).ready(function() {
                                     action: 'scan_server_uploads',
                                     ajax: true,
 {/literal}
-                                    token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+                                    token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminBackupAssistantAjax')}{/if}"
 {literal}
                                 },
                                 success: function(response) {
@@ -1456,7 +1456,7 @@ $(document).ready(function() {
                 filename: filename,
                 ajax: true,
 {/literal}
-                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminBackupAssistantAjax')}{/if}"
 {literal}
             },
             success: function(response) {
@@ -1524,7 +1524,7 @@ $(document).ready(function() {
                 filename: filename,
                 ajax: true,
 {/literal}
-                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminBackupAssistantAjax')}{/if}"
 {literal}
             },
             success: function(response) {
@@ -1575,7 +1575,7 @@ $(document).ready(function() {
                 <div class="well well-sm">
                     <strong><i class="icon-lightbulb-o"></i> Para archivos grandes:</strong>
                     <ol style="margin: 5px 0;">
-                        <li>Sube tu archivo ZIP mediante FTP/SFTP a la carpeta <code>/[admin_folder]/ps_copia/uploads/</code></li>
+                        <li>Sube tu archivo ZIP mediante FTP/SFTP a la carpeta <code>/[admin_folder]/backup_assistant/uploads/</code></li>
                         <li>Usa el botón "Escanear" para detectar archivos</li>
                         <li>Selecciona e importa el archivo deseado</li>
                     </ol>

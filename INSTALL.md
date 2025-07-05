@@ -1,4 +1,4 @@
-# Instalación del Módulo PS_Copia
+# Instalación del Módulo Backup Assistant
 
 ## Pasos de Instalación
 
@@ -7,10 +7,10 @@
 - Verifica que tengas permisos de administrador
 
 ### 2. Instalación del Módulo
-1. Sube la carpeta `ps_copia` al directorio `modules/` de tu instalación de PrestaShop
+1. Sube la carpeta `backup_assistant` al directorio `modules/` de tu instalación de PrestaShop
 2. Ve al panel de administración de PrestaShop
 3. Navega a **Módulos > Gestor de Módulos**
-4. Busca "Asistente de Copias de Seguridad" o "ps_copia"
+4. Busca "Asistente de Copias de Seguridad" o "backup_assistant"
 5. Haz clic en **Instalar**
 
 ### 3. Verificación
@@ -22,7 +22,7 @@
 ### 4. Configuración de Permisos
 Asegúrate de que los siguientes directorios tengan permisos de escritura:
 ```
-/admin/ps_copia/
+/admin/backup_assistant/
 /config/xml/
 ```
 
@@ -36,14 +36,14 @@ Asegúrate de que los siguientes directorios tengan permisos de escritura:
 
 ### Error de Autoloader
 Si encuentras errores relacionados con el autoloader de Composer:
-1. Ve al directorio del módulo: `cd modules/ps_copia/`
+1. Ve al directorio del módulo: `cd modules/backup_assistant/`
 2. Ejecuta: `composer dump-autoload --optimize`
 
 ### Permisos de Archivo
 Si tienes problemas de permisos:
 ```bash
-chmod -R 755 modules/ps_copia/
-chmod -R 777 admin/ps_copia/
+chmod -R 755 modules/backup_assistant/
+chmod -R 777 admin/backup_assistant/
 ```
 
 ### Cache

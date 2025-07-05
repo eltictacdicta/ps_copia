@@ -1,4 +1,4 @@
-# Correcciones realizadas al módulo ps_copia
+# Correcciones realizadas al módulo backup_assistant
 
 ## Problemas solucionados
 
@@ -69,13 +69,13 @@
 
 ## Archivos modificados
 
-1. `controllers/admin/AdminPsCopiaAjaxController.php`
+1. `controllers/admin/AdminBackupAssistantAjaxController.php`
    - Método `handleCreateBackup()` completamente reescrito
    - Método `zipFiles()` optimizado
    - Agregado `handleListBackups()`
    - Agregado `formatBytes()`
 
-2. `controllers/admin/AdminPsCopiaController.php`
+2. `controllers/admin/AdminBackupAssistantController.php`
    - Agregado token de seguridad al template
 
 3. `views/templates/admin/backup_dashboard.tpl`

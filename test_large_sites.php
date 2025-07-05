@@ -18,7 +18,7 @@ class LargeSitesTest
 
     public function __construct()
     {
-        $this->tempDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ps_copia_test_' . time();
+        $this->tempDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'backup_assistant_test_' . time();
         if (!mkdir($this->tempDir, 0755, true)) {
             throw new Exception('No se pudo crear directorio temporal: ' . $this->tempDir);
         }

@@ -1,4 +1,4 @@
-# 🎉 Mejoras Realizadas: Módulo ps_copia con Backups Unificados
+# 🎉 Mejoras Realizadas: Módulo backup_assistant con Backups Unificados
 
 ## ✅ Problemas Solucionados
 

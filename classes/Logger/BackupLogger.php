@@ -18,9 +18,9 @@
  * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
  */
 
-namespace PrestaShop\Module\PsCopia\Logger;
+namespace PrestaShop\Module\BackupAssistant\Logger;
 
-use PrestaShop\Module\PsCopia\BackupContainer;
+use PrestaShop\Module\BackupAssistant\BackupContainer;
 
 /**
  * Simple logger for backup operations

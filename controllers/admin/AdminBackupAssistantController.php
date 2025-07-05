@@ -19,12 +19,12 @@
  * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
  */
 
-use PrestaShop\Module\PsCopia\BackupContainer;
-use PrestaShop\Module\PsCopia\VersionUtils;
+use PrestaShop\Module\BackupAssistant\BackupContainer;
+use PrestaShop\Module\BackupAssistant\VersionUtils;
 
-class AdminPsCopiaController extends ModuleAdminController
+class AdminBackupAssistantController extends ModuleAdminController
 {
-    /** @var Ps_copia */
+    /** @var BackupAssistant */
     public $module;
     public $multishop_context_group = false;
     /** @var bool */
@@ -95,8 +95,8 @@ class AdminPsCopiaController extends ModuleAdminController
 
         // Manually load critical classes if not available
         $classesToLoad = [
-            'PrestaShop\Module\PsCopia\VersionUtils' => '/../../classes/VersionUtils.php',
-            'PrestaShop\Module\PsCopia\BackupContainer' => '/../../classes/BackupContainer.php',
+            'PrestaShop\Module\BackupAssistant\VersionUtils' => '/../../classes/VersionUtils.php',
+            'PrestaShop\Module\BackupAssistant\BackupContainer' => '/../../classes/BackupContainer.php',
         ];
 
         foreach ($classesToLoad as $className => $filePath) {
@@ -131,8 +131,8 @@ class AdminPsCopiaController extends ModuleAdminController
         }
 
         // Initialize backup container
-        if (class_exists('PrestaShop\Module\PsCopia\BackupContainer')) {
-            $this->backupContainer = new BackupContainer(_PS_ROOT_DIR_, _PS_ADMIN_DIR_, 'ps_copia');
+        if (class_exists('PrestaShop\Module\BackupAssistant\BackupContainer')) {
+            $this->backupContainer = new BackupContainer(_PS_ROOT_DIR_, _PS_ADMIN_DIR_, 'backup_assistant');
             $this->backupContainer->initDirectories();
         }
     }
@@ -168,7 +168,7 @@ class AdminPsCopiaController extends ModuleAdminController
             'module_dir' => $this->module->getPathUri(),
             'module_version' => $this->module->version,
             'admin_dir' => basename(_PS_ADMIN_DIR_),
-            'token' => Tools::getAdminTokenLite('AdminPsCopiaAjax'),
+            'token' => Tools::getAdminTokenLite('AdminBackupAssistantAjax'),
         ]);
 
         $this->content = $this->context->smarty->fetch($this->module->getLocalPath() . 'views/templates/admin/backup_dashboard.tpl');

@@ -16,7 +16,7 @@ Se ha implementado exitosamente la funcionalidad solicitada para resolver el pro
 ## 📋 **Archivos Modificados**
 
 ### **Backend - Controller PHP**
-**Archivo:** `controllers/admin/AdminPsCopiaAjaxController.php`
+**Archivo:** `controllers/admin/AdminBackupAssistantAjaxController.php`
 
 **Nuevas acciones AJAX añadidas:**
 ```php
@@ -85,7 +85,7 @@ Deny from all
 ```bash
 # Usuario sube archivo por FTP/SFTP
 sftp usuario@servidor.com
-cd /path/to/prestashop/[admin_folder]/ps_copia/uploads/
+cd /path/to/prestashop/[admin_folder]/backup_assistant/uploads/
 put mi_backup_grande.zip
 ```
 
@@ -171,6 +171,6 @@ La funcionalidad solicitada está **100% implementada** y resuelve completamente
 
 ## 🎉 **CONCLUSIÓN**
 
-La implementación está **COMPLETA Y OPERATIVA**. El módulo ps_copia ahora puede manejar backups de cualquier tamaño sin depender de la configuración del servidor, cumpliendo exactamente con lo solicitado.
+La implementación está **COMPLETA Y OPERATIVA**. El módulo backup_assistant ahora puede manejar backups de cualquier tamaño sin depender de la configuración del servidor, cumpliendo exactamente con lo solicitado.
 
 **¡El problema de uploads grandes está completamente resuelto!** 

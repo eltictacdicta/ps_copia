@@ -23,7 +23,7 @@ Esta nueva funcionalidad permite importar backups grandes sin las limitaciones d
 ### **1. Directorio de Uploads**
 El módulo crea automáticamente en el directorio admin (mejorada seguridad):
 ```
-/[admin_folder]/ps_copia/uploads/
+/[admin_folder]/backup_assistant/uploads/
 ├── .htaccess          # Seguridad
 ├── index.php          # Prevenir listado
 └── [tus_archivos.zip] # Backups subidos
@@ -31,7 +31,7 @@ El módulo crea automáticamente en el directorio admin (mejorada seguridad):
 **Nota**: `[admin_folder]` es único en cada instalación (ej: admin123, admin_xyz, etc.)
 
 ### **2. Flujo de Trabajo**
-1. **Subir archivo** → FTP/SFTP a la carpeta `/[admin_folder]/ps_copia/uploads/`
+1. **Subir archivo** → FTP/SFTP a la carpeta `/[admin_folder]/backup_assistant/uploads/`
 2. **Escanear** → El módulo detecta automáticamente archivos ZIP
 3. **Validar** → Verifica estructura de backup
 4. **Importar** → Procesa usando optimizaciones para sitios grandes
@@ -45,7 +45,7 @@ El módulo crea automáticamente en el directorio admin (mejorada seguridad):
 ```bash
 # Conectar por FTP
 ftp tu-servidor.com
-cd /path/to/prestashop/[admin_folder]/ps_copia/uploads/
+cd /path/to/prestashop/[admin_folder]/backup_assistant/uploads/
 put mi_backup_grande.zip
 quit
 ```
@@ -54,19 +54,19 @@ quit
 ```bash
 # Conectar por SFTP
 sftp usuario@tu-servidor.com
-cd /path/to/prestashop/[admin_folder]/ps_copia/uploads/
+cd /path/to/prestashop/[admin_folder]/backup_assistant/uploads/
 put mi_backup_grande.zip
 exit
 ```
 
 #### **Opción C: Cliente Visual (FileZilla, WinSCP)**
 1. Conectar al servidor
-2. Navegar a `/[admin_folder]/ps_copia/uploads/`
+2. Navegar a `/[admin_folder]/backup_assistant/uploads/`
 3. Arrastrar y soltar el archivo ZIP
 
 ### **Paso 2: Importar desde Panel Admin**
 
-1. **Abrir PS_Copia** en el admin de PrestaShop
+1. **Abrir Backup Assistant** en el admin de PrestaShop
 2. **Clic en "Importar desde Servidor"**
 3. **Escanear archivos** para detectar uploads
 4. **Seleccionar archivo** y hacer clic en "Importar"
@@ -133,7 +133,7 @@ Deny from all
 
 ### **Problema: "Archivo no válido"**
 ✅ **Solución:**
-1. Usar solo ZIPs exportados desde ps_copia
+1. Usar solo ZIPs exportados desde backup_assistant
 2. Verificar que el archivo no está corrupto
 3. Re-exportar desde el sistema origen
 
@@ -141,8 +141,8 @@ Deny from all
 ✅ **Solución:**
 ```bash
 # Establecer permisos correctos
-chmod 755 /[admin_folder]/ps_copia/uploads/
-chmod 644 /[admin_folder]/ps_copia/uploads/*.zip
+chmod 755 /[admin_folder]/backup_assistant/uploads/
+chmod 644 /[admin_folder]/backup_assistant/uploads/*.zip
 ```
 
 ### **Problema: "Timeout durante importación"**

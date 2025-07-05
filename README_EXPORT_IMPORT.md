@@ -2,7 +2,7 @@
 
 ## Nuevas Funcionalidades Implementadas
 
-Se han añadido nuevas funcionalidades al módulo **ps_copia** para permitir exportar e importar copias de seguridad mediante archivos ZIP:
+Se han añadido nuevas funcionalidades al módulo **backup_assistant** para permitir exportar e importar copias de seguridad mediante archivos ZIP:
 
 ### 1. **Exportar Backup**
 - **Botón**: "Exportar" (naranja) en la lista de backups completos
@@ -55,7 +55,7 @@ Se han añadido nuevas funcionalidades al módulo **ps_copia** para permitir exp
 
 ### 5. **Archivos Modificados**
 
-1. **controllers/admin/AdminPsCopiaAjaxController.php**:
+1. **controllers/admin/AdminBackupAssistantAjaxController.php**:
    - Nuevos métodos: `handleExportBackup()`, `handleImportBackup()`, `handleDownloadExport()`
    - Casos añadidos en el switch: 'export_backup', 'import_backup', 'download_export'
 

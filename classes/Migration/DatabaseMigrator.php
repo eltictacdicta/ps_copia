@@ -18,10 +18,10 @@
  * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
  */
 
-namespace PrestaShop\Module\PsCopia\Migration;
+namespace PrestaShop\Module\BackupAssistant\Migration;
 
-use PrestaShop\Module\PsCopia\BackupContainer;
-use PrestaShop\Module\PsCopia\Logger\BackupLogger;
+use PrestaShop\Module\BackupAssistant\BackupContainer;
+use PrestaShop\Module\BackupAssistant\Logger\BackupLogger;
 use Exception;
 use Db;
 
@@ -179,7 +179,7 @@ class DatabaseMigrator
      */
     private function createTemporaryBackup(): string
     {
-        $tempFile = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ps_copia_temp_backup_' . time() . '.sql.gz';
+        $tempFile = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'backup_assistant_temp_backup_' . time() . '.sql.gz';
         
         $command = sprintf(
             'mysqldump --single-transaction --routines --triggers --host=%s --user=%s --password=%s %s | gzip > %s',

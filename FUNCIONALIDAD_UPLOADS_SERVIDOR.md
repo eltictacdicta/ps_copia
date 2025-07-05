@@ -2,7 +2,7 @@
 
 ## 🎯 **Problema Resuelto**
 
-El módulo ps_copia ahora tiene una **solución completa** para importar backups grandes sin limitaciones de PHP:
+El módulo backup_assistant ahora tiene una **solución completa** para importar backups grandes sin limitaciones de PHP:
 
 ### **Antes:**
 - ❌ Fallos con archivos > 100MB por `upload_max_filesize`
@@ -19,7 +19,7 @@ El módulo ps_copia ahora tiene una **solución completa** para importar backups
 ### **Backend (PHP)**
 Se añadieron 3 nuevas acciones AJAX:
 
-1. **`scan_server_uploads`** - Escanea directorio `/[admin_folder]/ps_copia/uploads/`
+1. **`scan_server_uploads`** - Escanea directorio `/[admin_folder]/backup_assistant/uploads/`
 2. **`import_from_server`** - Importa archivo del servidor
 3. **`delete_server_upload`** - Elimina archivo del servidor
 
@@ -38,7 +38,7 @@ Se añadieron 3 nuevas acciones AJAX:
 ## 📂 **Estructura de Archivos**
 
 ```
-/[admin_folder]/ps_copia/uploads/
+/[admin_folder]/backup_assistant/uploads/
 ├── .htaccess          # Protección automática
 ├── index.php          # Prevenir listado
 └── [archivos_zip]     # Backups subidos por FTP
@@ -47,8 +47,8 @@ Se añadieron 3 nuevas acciones AJAX:
 ## 🚀 **Flujo de Trabajo**
 
 ### **Para el Usuario:**
-1. **Subir ZIP por FTP/SFTP** → `/[admin_folder]/ps_copia/uploads/`
-2. **Abrir ps_copia** → Admin PrestaShop
+1. **Subir ZIP por FTP/SFTP** → `/[admin_folder]/backup_assistant/uploads/`
+2. **Abrir backup_assistant** → Admin PrestaShop
 3. **Clic "Importar desde Servidor"**
 4. **Escanear archivos** disponibles
 5. **Seleccionar e importar** el backup deseado
@@ -71,7 +71,7 @@ Se añadieron 3 nuevas acciones AJAX:
 ## 📋 **Archivos Modificados**
 
 ### **Backend:**
-- `controllers/admin/AdminPsCopiaAjaxController.php`
+- `controllers/admin/AdminBackupAssistantAjaxController.php`
   - Nuevos métodos: `handleScanServerUploads()`, `handleImportFromServer()`, `handleDeleteServerUpload()`
   - Validaciones de seguridad
   - Procesamiento optimizado
@@ -140,4 +140,4 @@ La funcionalidad está **100% operativa** y lista para usar. Los usuarios pueden
 
 La funcionalidad de uploads del servidor elimina completamente las limitaciones para importar backups grandes, proporcionando una solución robusta que funciona independientemente de la configuración del servidor.
 
-**¡El módulo ps_copia ahora puede manejar sitios de cualquier tamaño!** 
+**¡El módulo backup_assistant ahora puede manejar sitios de cualquier tamaño!** 

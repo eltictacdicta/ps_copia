@@ -18,10 +18,10 @@
  * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
  */
 
-namespace PrestaShop\Module\PsCopia\Migration;
+namespace PrestaShop\Module\BackupAssistant\Migration;
 
-use PrestaShop\Module\PsCopia\BackupContainer;
-use PrestaShop\Module\PsCopia\Logger\BackupLogger;
+use PrestaShop\Module\BackupAssistant\BackupContainer;
+use PrestaShop\Module\BackupAssistant\Logger\BackupLogger;
 use Exception;
 use ZipArchive;
 use RecursiveIteratorIterator;
@@ -140,7 +140,7 @@ class FilesMigrator
             throw new Exception('Cannot open ZIP file: ' . $this->getZipError($result));
         }
 
-        $tempDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ps_copia_files_migrate_' . time();
+        $tempDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'backup_assistant_files_migrate_' . time();
         if (!mkdir($tempDir, 0755, true)) {
             throw new Exception('Cannot create temporary directory: ' . $tempDir);
         }
@@ -481,7 +481,7 @@ class FilesMigrator
             'Thumbs.db',
             '.DS_Store',
             // Exclude current backup module directory to avoid conflicts
-            '/admin*/ps_copia/',
+            '/admin*/backup_assistant/',
         ];
     }
 

@@ -1,7 +1,7 @@
 <?php
 /**
  * Test Script para Funcionalidad de Uploads del Servidor
- * ps_copia Module - Server Uploads Testing
+ * backup_assistant Module - Server Uploads Testing
  */
 
 // Incluir configuración de PrestaShop

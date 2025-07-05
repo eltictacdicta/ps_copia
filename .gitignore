@@ -37,5 +37,5 @@ restore_*.php
 # Module specific temporary files
 upgrade/
 backup/
-admin/ps_copia/
+admin/backup_assistant/
 /tmp/ 

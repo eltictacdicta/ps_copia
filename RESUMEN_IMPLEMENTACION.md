@@ -1,8 +1,8 @@
-# ✅ Implementación Completada: PS_Copia para Sitios Grandes
+# ✅ Implementación Completada: Backup Assistant para Sitios Grandes
 
 ## 🎯 **Objetivo Alcanzado**
 
-El módulo **ps_copia** ha sido exitosamente optimizado para manejar exportación/importación de sitios grandes **sin depender de la configuración del servidor**. 
+El módulo **backup_assistant** ha sido exitosamente optimizado para manejar exportación/importación de sitios grandes **sin depender de la configuración del servidor**. 
 
 ## 🚀 **Características Implementadas**
 
@@ -55,7 +55,7 @@ Total: 7 | Pasadas: 7 | Fallidas: 0
 ## 🛠️ **Archivos Modificados**
 
 ### **Backend (PHP)**
-1. **`controllers/admin/AdminPsCopiaAjaxController.php`**
+1. **`controllers/admin/AdminBackupAssistantAjaxController.php`**
    - ✅ Método `createZipBackup()` completamente reescrito
    - ✅ Nuevos métodos para procesamiento chunked
    - ✅ Streaming de archivos grandes
@@ -107,7 +107,7 @@ Total: 7 | Pasadas: 7 | Fallidas: 0
 
 ### **1. Ejecutar Suite de Pruebas**
 ```bash
-cd modules/ps_copia
+cd modules/backup_assistant
 php test_large_sites.php
 ```
 
@@ -139,7 +139,7 @@ php test_large_sites.php
 
 ## 🎉 **Conclusión**
 
-La implementación está **completa y funcionando**. El módulo ps_copia ahora puede manejar sitios de cualquier tamaño sin requerir cambios en la configuración del servidor.
+La implementación está **completa y funcionando**. El módulo backup_assistant ahora puede manejar sitios de cualquier tamaño sin requerir cambios en la configuración del servidor.
 
 ### **Beneficios Clave:**
 1. **Compatibilidad Universal**: Funciona en cualquier servidor

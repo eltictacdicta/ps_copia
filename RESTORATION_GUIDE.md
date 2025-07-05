@@ -1,8 +1,8 @@
-# Guía de Restauración - Módulo PS_Copia
+# Guía de Restauración - Módulo Backup Assistant
 
 ## ✅ Problema Resuelto
 
-El problema de restauración de copias de seguridad en el módulo `ps_copia` ha sido **completamente solucionado**.
+El problema de restauración de copias de seguridad en el módulo `backup_assistant` ha sido **completamente solucionado**.
 
 ### 🔧 Cambios Implementados
 
