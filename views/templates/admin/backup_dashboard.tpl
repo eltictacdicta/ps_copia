@@ -72,6 +72,11 @@
                                 <i class="icon-hdd"></i>
                                 Importar desde Servidor
                             </button>
+                            <br><br>
+                            <button id="testModalBtn" class="btn btn-sm btn-warning">
+                                <i class="icon-cog"></i>
+                                Test Modal (Debug)
+                            </button>
                         </div>
                         <small class="help-block" style="margin-top: 10px;">
                             <strong>Importar:</strong> Detecta automáticamente configuraciones de otros PrestaShop<br>
@@ -307,35 +312,95 @@ $(document).ready(function() {
 
     // Función helper para manejar modales de forma compatible
     function showModal(modalSelector) {
+        console.log('Intentando abrir modal:', modalSelector);
         var modal = $(modalSelector);
+        
+        // Debug: verificar si el modal existe
+        if (modal.length === 0) {
+            console.error('Modal no encontrado:', modalSelector);
+            return;
+        }
+        
+        console.log('Modal encontrado, verificando métodos disponibles...');
+        console.log('modal.modal disponible:', typeof modal.modal === 'function');
+        console.log('bootstrap global disponible:', typeof bootstrap !== 'undefined');
+        console.log('jQuery versión:', $.fn.jquery);
+        
+        // Intento 1: Bootstrap nativo
         if (typeof modal.modal === 'function') {
-            modal.modal('show');
-        } else if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
-            // Bootstrap 5
-            var modalInstance = new bootstrap.Modal(modal[0]);
-            modalInstance.show();
-        } else {
-            // Fallback: mostrar manualmente
-            modal.addClass('show').css('display', 'block');
-            $('body').addClass('modal-open');
-            
-            // Agregar backdrop si no existe
-            if ($('.modal-backdrop').length === 0) {
-                $('body').append('<div class="modal-backdrop fade show"></div>');
+            console.log('Usando modal.modal() nativo');
+            try {
+                modal.modal('show');
+                return;
+            } catch (e) {
+                console.error('Error con modal.modal():', e);
             }
         }
+        
+        // Intento 2: Bootstrap 5
+        if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+            console.log('Usando Bootstrap 5');
+            try {
+                var modalInstance = new bootstrap.Modal(modal[0]);
+                modalInstance.show();
+                return;
+            } catch (e) {
+                console.error('Error con Bootstrap 5:', e);
+            }
+        }
+        
+        // Intento 3: PrestaShop específico - buscar funciones globales
+        if (typeof window.openModal === 'function') {
+            console.log('Usando window.openModal');
+            try {
+                window.openModal(modalSelector);
+                return;
+            } catch (e) {
+                console.error('Error con window.openModal:', e);
+            }
+        }
+        
+        // Intento 4: Fallback manual mejorado
+        console.log('Usando fallback manual');
+        modal.addClass('show').css({
+            'display': 'block',
+            'z-index': '1050'
+        });
+        $('body').addClass('modal-open');
+        
+        // Agregar backdrop mejorado
+        if ($('.modal-backdrop').length === 0) {
+            $('<div class="modal-backdrop fade show" style="z-index: 1040;"></div>').appendTo('body');
+        }
+        
+        // Centrar el modal
+        modal.css({
+            'padding-left': '0px',
+            'padding-right': '0px'
+        });
+        
+        console.log('Modal mostrado manualmente');
     }
 
     function hideModal(modalSelector) {
+        console.log('Intentando cerrar modal:', modalSelector);
         var modal = $(modalSelector);
+        
         if (typeof modal.modal === 'function') {
-            modal.modal('hide');
-        } else {
-            // Fallback: ocultar manualmente
-            modal.removeClass('show').css('display', 'none');
-            $('body').removeClass('modal-open');
-            $('.modal-backdrop').remove();
+            console.log('Cerrando con modal.modal()');
+            try {
+                modal.modal('hide');
+                return;
+            } catch (e) {
+                console.error('Error cerrando modal:', e);
+            }
         }
+        
+        // Fallback: ocultar manualmente
+        console.log('Cerrando manualmente');
+        modal.removeClass('show').css('display', 'none');
+        $('body').removeClass('modal-open');
+        $('.modal-backdrop').remove();
     }
 
     // Crear backup completo
@@ -1103,6 +1168,24 @@ $(document).ready(function() {
     
     // Manejar botón de uploads del servidor
     $('#serverUploadsBtn').on('click', function() {
+        showModal('#serverUploadsModal');
+    });
+
+    // Botón de prueba para debugging
+    $('#testModalBtn').on('click', function() {
+        console.log('=== TEST MODAL DEBUG ===');
+        console.log('jQuery disponible:', typeof $ !== 'undefined');
+        console.log('jQuery versión:', $.fn.jquery);
+        console.log('Bootstrap disponible:', typeof bootstrap !== 'undefined');
+        console.log('Modal functions en $():', typeof $().modal);
+        
+        // Probar diferentes formas de abrir
+        var testModal = $('#serverUploadsModal');
+        console.log('Modal encontrado:', testModal.length > 0);
+        console.log('Modal HTML:', testModal[0]);
+        
+        // Intento directo
+        alert('Check console for debug info. Modal should open after this alert.');
         showModal('#serverUploadsModal');
     });
 
