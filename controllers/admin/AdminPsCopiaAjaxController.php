@@ -1831,9 +1831,10 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
      * @param string $newBackupName
      * @param string $originalFilename
      * @param array $backupInfo
+     * @param string|null $serverZipPath Optional path to server ZIP file to delete after import
      * @throws Exception
      */
-    private function extractBackupStandard(ZipArchive $zip, string $newBackupName, string $originalFilename, array $backupInfo): void
+    private function extractBackupStandard(ZipArchive $zip, string $newBackupName, string $originalFilename, array $backupInfo, ?string $serverZipPath = null): void
     {
         $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
         $extractPath = $backupDir . DIRECTORY_SEPARATOR . 'temp_extract_' . time();
@@ -1843,7 +1844,7 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         }
         
         try {
-            $this->processExtractedFiles($extractPath, $newBackupName, $originalFilename, $backupInfo);
+            $this->processExtractedFiles($extractPath, $newBackupName, $originalFilename, $backupInfo, $serverZipPath);
         } finally {
             $this->removeDirectoryRecursively($extractPath);
         }
@@ -1856,9 +1857,10 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
      * @param string $newBackupName
      * @param string $originalFilename
      * @param array $backupInfo
+     * @param string|null $serverZipPath Optional path to server ZIP file to delete after import
      * @throws Exception
      */
-    private function extractBackupStreaming(ZipArchive $zip, string $newBackupName, string $originalFilename, array $backupInfo): void
+    private function extractBackupStreaming(ZipArchive $zip, string $newBackupName, string $originalFilename, array $backupInfo, ?string $serverZipPath = null): void
     {
         $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
         
@@ -1896,6 +1898,12 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         
         // Actualizar metadata
         $this->saveImportedBackupMetadata($newBackupName, $newDbFilename, $newFilesFilename, $originalFilename, $backupInfo);
+        
+        // Si llegamos aquí, la importación fue exitosa
+        // Eliminar automáticamente el archivo ZIP original del servidor si se proporcionó
+        if ($serverZipPath !== null) {
+            $this->deleteServerUploadFileAfterImport($serverZipPath, $originalFilename);
+        }
         
         $this->logger->info("Large backup import completed successfully", [
             'new_backup_name' => $newBackupName,
@@ -1972,9 +1980,10 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
      * @param string $newBackupName
      * @param string $originalFilename
      * @param array $backupInfo
+     * @param string|null $serverZipPath Optional path to server ZIP file to delete after import
      * @throws Exception
      */
-    private function processExtractedFiles(string $extractPath, string $newBackupName, string $originalFilename, array $backupInfo): void
+    private function processExtractedFiles(string $extractPath, string $newBackupName, string $originalFilename, array $backupInfo, ?string $serverZipPath = null): void
     {
         $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
         
@@ -2008,6 +2017,12 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         
         // Actualizar metadata
         $this->saveImportedBackupMetadata($newBackupName, $newDbFilename, $newFilesFilename, $originalFilename, $backupInfo);
+        
+        // Si llegamos aquí, la importación fue exitosa
+        // Eliminar automáticamente el archivo ZIP original del servidor si se proporcionó
+        if ($serverZipPath !== null) {
+            $this->deleteServerUploadFileAfterImport($serverZipPath, $originalFilename);
+        }
         
         $this->logger->info("Backup import completed successfully", [
             'new_backup_name' => $newBackupName,
@@ -3180,11 +3195,7 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             $newBackupName = 'server_backup_' . $timestamp;
             
             // Extraer archivos usando método estándar
-            $this->extractBackupStandard($zip, $newBackupName, $originalFilename, $backupInfo);
-            
-            // Si llegamos aquí, la importación fue exitosa
-            // Eliminar automáticamente el archivo ZIP original del servidor
-            $this->deleteServerUploadFileAfterImport($zipPath, $originalFilename);
+            $this->extractBackupStandard($zip, $newBackupName, $originalFilename, $backupInfo, $zipPath);
             
         } finally {
             $zip->close();
@@ -3221,11 +3232,7 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             $newBackupName = 'server_backup_' . $timestamp;
             
             // Extraer usando streaming para archivos grandes
-            $this->extractBackupStreaming($zip, $newBackupName, $originalFilename, $backupInfo);
-            
-            // Si llegamos aquí, la importación fue exitosa
-            // Eliminar automáticamente el archivo ZIP original del servidor
-            $this->deleteServerUploadFileAfterImport($zipPath, $originalFilename);
+            $this->extractBackupStreaming($zip, $newBackupName, $originalFilename, $backupInfo, $zipPath);
             
         } finally {
             $zip->close();
