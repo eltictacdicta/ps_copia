@@ -3182,6 +3182,10 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             // Extraer archivos usando método estándar
             $this->extractBackupStandard($zip, $newBackupName, $originalFilename, $backupInfo);
             
+            // Si llegamos aquí, la importación fue exitosa
+            // Eliminar automáticamente el archivo ZIP original del servidor
+            $this->deleteServerUploadFileAfterImport($zipPath, $originalFilename);
+            
         } finally {
             $zip->close();
         }
@@ -3219,8 +3223,52 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             // Extraer usando streaming para archivos grandes
             $this->extractBackupStreaming($zip, $newBackupName, $originalFilename, $backupInfo);
             
+            // Si llegamos aquí, la importación fue exitosa
+            // Eliminar automáticamente el archivo ZIP original del servidor
+            $this->deleteServerUploadFileAfterImport($zipPath, $originalFilename);
+            
         } finally {
             $zip->close();
+        }
+    }
+
+    /**
+     * Delete server upload file after successful import
+     *
+     * @param string $zipPath
+     * @param string $originalFilename
+     */
+    private function deleteServerUploadFileAfterImport(string $zipPath, string $originalFilename): void
+    {
+        try {
+            // Verificar que el archivo existe y es seguro para eliminar
+            if (!$this->validateServerUploadFile($zipPath, $originalFilename)) {
+                $this->logger->warning("Cannot delete server upload file - validation failed", [
+                    'filename' => $originalFilename,
+                    'path' => $zipPath
+                ]);
+                return;
+            }
+            
+            // Eliminar el archivo ZIP original
+            if (@unlink($zipPath)) {
+                $this->logger->info("Server upload file deleted automatically after successful import", [
+                    'filename' => $originalFilename,
+                    'path' => $zipPath
+                ]);
+            } else {
+                $this->logger->warning("Failed to delete server upload file after import", [
+                    'filename' => $originalFilename,
+                    'path' => $zipPath
+                ]);
+            }
+            
+        } catch (Exception $e) {
+            // No queremos que un error al eliminar el archivo interrumpa la respuesta de éxito
+            $this->logger->error("Error deleting server upload file after import", [
+                'filename' => $originalFilename,
+                'error' => $e->getMessage()
+            ]);
         }
     }
 
