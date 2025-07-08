@@ -72,13 +72,8 @@
                                 <i class="icon-hdd"></i>
                                 Importar desde Servidor
                             </button>
-                            <button id="uploadWithMigrationDirectBtn" class="btn btn-lg btn-primary">
-                                <i class="icon-magic"></i>
-                                Migrar desde Otro PrestaShop
-                            </button>
                         </div>
                         <small class="help-block" style="margin-top: 10px;">
-                            <strong>Migración:</strong> Cambia URLs y configuraciones automáticamente<br>
                             <strong>Servidor:</strong> Para archivos grandes subidos por FTP/SFTP
                         </small>
                     </div>
@@ -208,72 +203,12 @@
                 <button type="button" class="btn btn-warning" id="confirmUploadBtn">
                     <i class="icon-upload"></i> Subir Backup
                 </button>
-                <button type="button" class="btn btn-primary" id="uploadWithMigrationBtn">
-                    <i class="icon-magic"></i> Subir con Migración
-                </button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Modal simplificado para migración -->
-<div class="modal fade" id="uploadMigrationModal" tabindex="-1" role="dialog">
-    <div class="modal-dialog" role="document">
-        <div class="modal-content">
-            <div class="modal-header">
-                <button type="button" class="close" data-dismiss="modal">&times;</button>
-                <h4 class="modal-title">
-                    <i class="icon-magic text-primary"></i>
-                    Migrar desde Otro PrestaShop
-                </h4>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-warning">
-                    <strong><i class="icon-warning-sign"></i> IMPORTANTE:</strong> 
-                    Se sobrescribirán TODOS los datos actuales.
-                </div>
-                
-                <form id="uploadMigrationForm" enctype="multipart/form-data">
-                    <div class="form-group">
-                        <label for="migration_backup_file">Archivo de Backup (ZIP):</label>
-                        <input type="file" class="form-control" id="migration_backup_file" name="backup_file" accept=".zip" required>
-                    </div>
 
-                    <!-- Configuración automática simple -->
-                    <div class="well well-sm">
-                        <h5><i class="icon-magic"></i> Configuración Automática:</h5>
-                        <ul class="list-unstyled" style="margin: 0;">
-                            <li><i class="icon-check text-success"></i> <strong>URLs:</strong> Se detectan y cambian automáticamente</li>
-                            <li><i class="icon-check text-success"></i> <strong>Carpeta Admin:</strong> Se detecta automáticamente del backup</li>
-                            <li><i class="icon-check text-success"></i> <strong>Base de Datos:</strong> Se mantiene la configuración actual</li>
-                        </ul>
-                    </div>
-
-                    <!-- Campos ocultos para configuración automática -->
-                    <input type="hidden" name="migrate_urls" value="1">
-                    <input type="hidden" name="migrate_admin_dir" value="0">
-                    <input type="hidden" name="preserve_db_config" value="1">
-                    <input type="hidden" name="old_url" value="">
-                    <input type="hidden" name="new_url" value="">
-                </form>
-
-                <div id="migration-progress" style="display: none;">
-                    <div class="progress">
-                        <div class="progress-bar progress-bar-striped active" role="progressbar" style="width: 0%;">
-                            <span>Procesando migración...</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-default" data-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-primary" id="confirmMigrationBtn">
-                    <i class="icon-magic"></i> Migrar Backup
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
 
 <style>
 .panel-default .panel-body {
@@ -1081,136 +1016,7 @@ $(document).ready(function() {
         $('#confirmUploadBtn').prop('disabled', false).html('<i class="icon-upload"></i> Subir Backup');
     });
 
-    // Manejar botón "Subir con Migración"
-    $('#uploadWithMigrationBtn').on('click', function() {
-        $('#uploadBackupModal').modal('hide');
-        $('#uploadMigrationModal').modal('show');
-    });
 
-    // Manejar botón directo "Subir Backup con Migración"
-    $('#uploadWithMigrationDirectBtn').on('click', function() {
-        $('#uploadMigrationModal').modal('show');
-    });
-
-    // Configuración automática simplificada - todo se maneja internamente
-
-    // Manejar confirmación de importación con migración
-    $('#confirmMigrationBtn').on('click', function() {
-        var fileInput = $('#migration_backup_file')[0];
-        
-        if (!fileInput.files || !fileInput.files[0]) {
-            alert('Por favor selecciona un archivo ZIP de backup');
-            return;
-        }
-        
-        var file = fileInput.files[0];
-        
-        // Verificar extensión
-        if (!file.name.toLowerCase().endsWith('.zip')) {
-            alert('El archivo debe ser un ZIP válido');
-            return;
-        }
-
-        // La configuración es automática - no hay validación manual necesaria
-        console.log('Iniciando migración automática con auto-detección completa');
-        
-        var $btn = $(this);
-        $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Migrando...');
-        $('#migration-progress').show();
-        
-        var formData = new FormData($('#uploadMigrationForm')[0]);
-        formData.append('action', 'import_backup_with_migration');
-        formData.append('ajax', 'true');
-{/literal}
-        formData.append('token', "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}");
-{literal}
-
-        $.ajax({
-            url: ajaxUrl,
-            type: 'POST',
-            dataType: 'json',
-            data: formData,
-            processData: false,
-            contentType: false,
-            timeout: 1200000, // 20 minutos de timeout para migraciones
-            xhr: function() {
-                var xhr = new window.XMLHttpRequest();
-                xhr.upload.addEventListener("progress", function(evt) {
-                    if (evt.lengthComputable) {
-                        var percentComplete = evt.loaded / evt.total * 100;
-                        $('#migration-progress .progress-bar').css('width', percentComplete + '%');
-                        $('#migration-progress .progress-bar span').text('Subiendo... ' + Math.round(percentComplete) + '%');
-                    }
-                }, false);
-                return xhr;
-            },
-            success: function(response) {
-                if (response && response.success) {
-                    $('#uploadMigrationModal').modal('hide');
-                    
-                    // Mostrar mensaje de éxito
-                    var alertHtml = '<div class="alert alert-success alert-dismissible" role="alert">';
-                    alertHtml += '<button type="button" class="close" data-dismiss="alert" aria-label="Close">';
-                    alertHtml += '<span aria-hidden="true">&times;</span></button>';
-                    alertHtml += '<i class="icon-check"></i> <strong>¡Éxito!</strong> ' + response.message;
-                    alertHtml += '</div>';
-                    
-                    $('#ps-copia-content').prepend(alertHtml);
-                    
-                    // Recargar lista de backups
-                    loadBackupsList();
-                    
-                    // Limpiar formulario
-                    $('#uploadMigrationForm')[0].reset();
-                    
-                    // Limpiar formulario - la configuración es automática
-                    
-                    // Scroll al mensaje
-                    $('html, body').animate({
-                        scrollTop: $('#ps-copia-content').offset().top - 50
-                    }, 500);
-                    
-                    // Mostrar advertencia de recarga
-                    setTimeout(function() {
-                        if (confirm('¡La migración se completó exitosamente! Se recomienda recargar la página para asegurar que todos los cambios se reflejen correctamente. ¿Deseas recargar ahora?')) {
-                            window.location.reload();
-                        }
-                    }, 3000);
-                    
-                } else {
-                    alert('Error: ' + (response.error || 'Error desconocido durante la migración'));
-                }
-            },
-            error: function(xhr, status, error) {
-                var errorMessage = 'Error de comunicación con el servidor';
-                if (status === 'timeout') {
-                    errorMessage = 'La operación tardó demasiado tiempo. Las migraciones pueden tardar varios minutos.';
-                } else if (xhr.responseText) {
-                    try {
-                        var response = JSON.parse(xhr.responseText);
-                        errorMessage = response.error || errorMessage;
-                    } catch (e) {
-                        errorMessage += ': ' + xhr.responseText.substring(0, 200);
-                    }
-                }
-                alert('Error: ' + errorMessage);
-            },
-            complete: function() {
-                $btn.prop('disabled', false).html('<i class="icon-magic"></i> Migrar Backup');
-                $('#migration-progress').hide();
-                $('#migration-progress .progress-bar').css('width', '0%');
-                $('#migration-progress .progress-bar span').text('Procesando migración...');
-            }
-        });
-    });
-
-    // Limpiar formulario al cerrar modal de migración
-    $('#uploadMigrationModal').on('hidden.bs.modal', function() {
-        $('#uploadMigrationForm')[0].reset();
-        $('#migration-progress').hide();
-        $('#migration-progress .progress-bar').css('width', '0%');
-        $('#confirmMigrationBtn').prop('disabled', false).html('<i class="icon-magic"></i> Migrar Backup');
-    });
     // === FUNCIONALIDAD DE UPLOADS DEL SERVIDOR ===
     
     // Manejar botón de uploads del servidor
