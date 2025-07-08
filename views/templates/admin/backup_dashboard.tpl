@@ -300,6 +300,26 @@
 .modal-open {
     overflow: hidden;
 }
+
+/* Transiciones para modales manuales */
+.modal {
+    transition: opacity 0.15s linear, transform 0.15s ease-out;
+}
+
+.modal-backdrop {
+    transition: opacity 0.15s linear;
+}
+
+.modal-dialog {
+    transition: transform 0.3s ease-out;
+    transform: translate(0, 0);
+}
+
+/* Asegurar visibilidad correcta */
+.modal.show.in {
+    opacity: 1 !important;
+    visibility: visible !important;
+}
 </style>
 
 <script>
@@ -360,26 +380,49 @@ $(document).ready(function() {
             }
         }
         
-        // Intento 4: Fallback manual mejorado
-        console.log('Usando fallback manual');
-        modal.addClass('show').css({
-            'display': 'block',
-            'z-index': '1050'
-        });
-        $('body').addClass('modal-open');
-        
-        // Agregar backdrop mejorado
-        if ($('.modal-backdrop').length === 0) {
-            $('<div class="modal-backdrop fade show" style="z-index: 1040;"></div>').appendTo('body');
-        }
-        
-        // Centrar el modal
-        modal.css({
-            'padding-left': '0px',
-            'padding-right': '0px'
-        });
-        
-        console.log('Modal mostrado manualmente');
+                 // Intento 4: Fallback manual optimizado para PrestaShop 8
+         console.log('Usando fallback manual optimizado');
+         
+         // Asegurar que el modal tiene las clases correctas
+         modal.addClass('show in').css({
+             'display': 'block',
+             'z-index': '1050',
+             'opacity': '1',
+             'visibility': 'visible'
+         });
+         
+         // Agregar backdrop
+         if ($('.modal-backdrop').length === 0) {
+             var backdrop = $('<div class="modal-backdrop fade show in" style="z-index: 1040; opacity: 0.5;"></div>');
+             $('body').append(backdrop);
+             
+             // Animar entrada del backdrop
+             setTimeout(function() {
+                 backdrop.css('opacity', '0.5');
+             }, 10);
+         }
+         
+         // Configurar el body para modal
+         $('body').addClass('modal-open').css('overflow', 'hidden');
+         
+         // Centrar el modal y hacer scroll si es necesario
+         var modalDialog = modal.find('.modal-dialog');
+         modalDialog.css({
+             'margin': '30px auto',
+             'max-height': 'calc(100vh - 60px)',
+             'overflow-y': 'auto'
+         });
+         
+         // Animar entrada del modal
+         modal.css('opacity', '0');
+         setTimeout(function() {
+             modal.css({
+                 'opacity': '1',
+                 'transform': 'translate(0, 0)'
+             });
+         }, 10);
+         
+         console.log('Modal mostrado manualmente con animaciones');
     }
 
     function hideModal(modalSelector) {
@@ -396,11 +439,30 @@ $(document).ready(function() {
             }
         }
         
-        // Fallback: ocultar manualmente
-        console.log('Cerrando manualmente');
-        modal.removeClass('show').css('display', 'none');
-        $('body').removeClass('modal-open');
-        $('.modal-backdrop').remove();
+                 // Fallback: ocultar manualmente con animación
+         console.log('Cerrando manualmente con animación');
+         
+         // Animar salida del modal
+         modal.css({
+             'opacity': '0',
+             'transform': 'translate(0, -25%)'
+         });
+         
+         // Animar salida del backdrop
+         $('.modal-backdrop').css('opacity', '0');
+         
+         // Ocultar después de la animación
+         setTimeout(function() {
+             modal.removeClass('show in').css({
+                 'display': 'none',
+                 'opacity': '',
+                 'transform': '',
+                 'visibility': ''
+             });
+             $('.modal-backdrop').remove();
+             $('body').removeClass('modal-open').css('overflow', '');
+             console.log('Modal cerrado completamente');
+         }, 150);
     }
 
     // Crear backup completo
@@ -1199,6 +1261,16 @@ $(document).ready(function() {
         var openModals = $('.modal.show');
         if (openModals.length > 0) {
             hideModal('#' + openModals.first().attr('id'));
+        }
+    });
+
+    // Cerrar modal con tecla Escape
+    $(document).on('keydown', function(e) {
+        if (e.keyCode === 27) { // Escape key
+            var openModals = $('.modal.show');
+            if (openModals.length > 0) {
+                hideModal('#' + openModals.first().attr('id'));
+            }
         }
     });
 
