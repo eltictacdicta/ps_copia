@@ -125,6 +125,9 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                 case 'restore_backup':
                     $this->handleRestoreBackup();
                     break;
+                case 'restore_backup_smart':
+                    $this->handleSmartRestoreBackup();
+                    break;
                 case 'list_backups':
                     $this->handleListBackups();
                     break;
@@ -316,12 +319,14 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
      */
     private function buildMysqldumpCommand(string $backupFile): string
     {
+        $credentials = $this->getCurrentDbCredentials();
+        
         return sprintf(
             'mysqldump --single-transaction --routines --triggers --host=%s --user=%s --password=%s %s | gzip > %s',
-            escapeshellarg(_DB_SERVER_),
-            escapeshellarg(_DB_USER_),
-            escapeshellarg(_DB_PASSWD_),
-            escapeshellarg(_DB_NAME_),
+            escapeshellarg($credentials['host']),
+            escapeshellarg($credentials['user']),
+            escapeshellarg($credentials['password']),
+            escapeshellarg($credentials['name']),
             escapeshellarg($backupFile)
         );
     }
@@ -968,6 +973,144 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
     }
 
     /**
+     * Handle smart backup restoration with full environment adaptation
+     * This method automatically handles all common restoration issues
+     */
+    private function handleSmartRestoreBackup(): void
+    {
+        $backupName = Tools::getValue('backup_name');
+        
+        if (empty($backupName)) {
+            $this->ajaxError('Backup name is required');
+            return;
+        }
+
+        $this->logger->info("Starting smart restoration: " . $backupName);
+
+        try {
+            $metadata = $this->getBackupMetadata();
+            
+            if (!isset($metadata[$backupName])) {
+                throw new Exception("Backup metadata not found for: " . $backupName);
+            }
+
+            $backupInfo = $metadata[$backupName];
+            
+            // Validate that backup files exist
+            $this->backupContainer->validateBackupFile($backupInfo['database_file']);
+            $this->backupContainer->validateBackupFile($backupInfo['files_file']);
+
+            // Configuration for smart restoration
+            $migrationConfig = [
+                'clean_destination' => true,  // Always clean destination for complete replacement
+                'migrate_urls' => true,       // Always migrate URLs automatically
+                'preserve_db_config' => true, // Always preserve current environment DB config
+                'disable_problematic_modules' => true,
+                'auto_detect_environment' => true
+            ];
+
+            $this->logger->info("Smart restoration configuration", $migrationConfig);
+
+            // Get full paths to backup files
+            $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
+            $dbFilePath = $backupDir . DIRECTORY_SEPARATOR . $backupInfo['database_file'];
+            $filesFilePath = $backupDir . DIRECTORY_SEPARATOR . $backupInfo['files_file'];
+
+            // Apply enhanced database migration
+            $this->logger->info("Applying enhanced database migration");
+            
+            if (class_exists('PrestaShop\Module\PsCopia\Migration\DatabaseMigrator')) {
+                $dbMigrator = new \PrestaShop\Module\PsCopia\Migration\DatabaseMigrator($this->backupContainer, $this->logger);
+                $dbMigrator->migrateWithFullAdaptation($dbFilePath, $migrationConfig);
+            } else {
+                throw new Exception('Enhanced DatabaseMigrator not available');
+            }
+
+            // Restore files with smart handling
+            $this->logger->info("Restoring files with smart handling");
+            
+            if (class_exists('PrestaShop\Module\PsCopia\Migration\FilesMigrator')) {
+                try {
+                    $filesMigrator = new \PrestaShop\Module\PsCopia\Migration\FilesMigrator($this->backupContainer, $this->logger);
+                    $filesMigrator->migrateFiles($filesFilePath, $migrationConfig);
+                } catch (Exception $e) {
+                    $this->logger->error("Smart files migration failed, falling back to simple restoration: " . $e->getMessage());
+                    $this->restoreFiles($backupInfo['files_file']);
+                }
+            } else {
+                $this->logger->warning("FilesMigrator not available, using standard file restoration");
+                $this->restoreFiles($backupInfo['files_file']);
+            }
+
+            // Additional cleanup for problematic modules (physical files)
+            $this->cleanupProblematicModuleFiles();
+
+            $this->logger->info("Smart backup restoration completed successfully");
+
+            $this->ajaxSuccess([
+                'message' => 'Smart backup restoration completed successfully',
+                'details' => [
+                    'database_restored' => true,
+                    'files_restored' => true,
+                    'urls_migrated' => true,
+                    'modules_cleaned' => true,
+                    'environment_preserved' => true
+                ]
+            ]);
+
+        } catch (Exception $e) {
+            $this->logger->error("Smart backup restoration failed: " . $e->getMessage());
+            $this->ajaxError("Smart restoration failed: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Clean up problematic module files that commonly cause issues
+     */
+    private function cleanupProblematicModuleFiles(): void
+    {
+        $this->logger->info("Cleaning up problematic module files");
+        
+        $problematicModules = [
+            'ps_mbo',
+            'ps_eventbus',
+            'ps_metrics',
+            'ps_facebook'
+        ];
+        
+        $modulesDir = _PS_ROOT_DIR_ . '/modules/';
+        
+        foreach ($problematicModules as $module) {
+            $modulePath = $modulesDir . $module;
+            $disabledPath = $modulesDir . $module . '.disabled';
+            
+            // If module exists and is likely to cause problems, disable it
+            if (is_dir($modulePath)) {
+                // Check if module has vendor dependencies that might be missing
+                $vendorPath = $modulePath . '/vendor';
+                $composerPath = $modulePath . '/composer.json';
+                
+                if (file_exists($composerPath) && !is_dir($vendorPath)) {
+                    // Module has composer dependencies but no vendor folder - likely to cause issues
+                    rename($modulePath, $disabledPath);
+                    $this->logger->info("Disabled problematic module: " . $module);
+                }
+            }
+        }
+        
+        // Also handle custom modules with problematic patterns
+        $moduleFiles = glob($modulesDir . 'egh_*');
+        foreach ($moduleFiles as $moduleFile) {
+            if (is_dir($moduleFile)) {
+                $moduleName = basename($moduleFile);
+                $disabledPath = $moduleFile . '.disabled';
+                rename($moduleFile, $disabledPath);
+                $this->logger->info("Disabled custom module: " . $moduleName);
+            }
+        }
+    }
+
+    /**
      * Restore database from backup
      *
      * @param string $backupName
@@ -1010,24 +1153,25 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
      */
     private function buildMysqlRestoreCommand(string $backupFile): string
     {
+        $credentials = $this->getCurrentDbCredentials();
         $isGzipped = pathinfo($backupFile, PATHINFO_EXTENSION) === 'gz';
         
         if ($isGzipped) {
             return sprintf(
                 'zcat %s | mysql --host=%s --user=%s --password=%s %s',
                 escapeshellarg($backupFile),
-                escapeshellarg(_DB_SERVER_),
-                escapeshellarg(_DB_USER_),
-                escapeshellarg(_DB_PASSWD_),
-                escapeshellarg(_DB_NAME_)
+                escapeshellarg($credentials['host']),
+                escapeshellarg($credentials['user']),
+                escapeshellarg($credentials['password']),
+                escapeshellarg($credentials['name'])
             );
         } else {
             return sprintf(
                 'mysql --host=%s --user=%s --password=%s %s < %s',
-                escapeshellarg(_DB_SERVER_),
-                escapeshellarg(_DB_USER_),
-                escapeshellarg(_DB_PASSWD_),
-                escapeshellarg(_DB_NAME_),
+                escapeshellarg($credentials['host']),
+                escapeshellarg($credentials['user']),
+                escapeshellarg($credentials['password']),
+                escapeshellarg($credentials['name']),
                 escapeshellarg($backupFile)
             );
         }
@@ -3922,7 +4066,104 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         $this->importByDirectCopy($zipPath, $filename, $newBackupName);
     }
 
+    /**
+     * Get current database credentials from environment
+     * This ensures we use the correct credentials even after backup restoration
+     *
+     * @return array
+     */
+    private function getCurrentDbCredentials(): array
+    {
+        // First try to read from parameters.php (current environment)
+        $parametersFile = _PS_ROOT_DIR_ . '/app/config/parameters.php';
+        
+        if (file_exists($parametersFile)) {
+            $parametersContent = file_get_contents($parametersFile);
+            if ($parametersContent !== false) {
+                // Extract parameters array from file
+                $matches = [];
+                if (preg_match('/return\s+array\s*\(\s*\'parameters\'\s*=>\s*array\s*\((.*?)\)\s*,?\s*\)\s*;/s', $parametersContent, $matches)) {
+                    $paramsString = $matches[1];
+                    
+                    // Extract individual parameters
+                    $credentials = [];
+                    if (preg_match('/\'database_host\'\s*=>\s*\'([^\']*)\'/s', $paramsString, $hostMatch)) {
+                        $credentials['host'] = $hostMatch[1];
+                    }
+                    if (preg_match('/\'database_user\'\s*=>\s*\'([^\']*)\'/s', $paramsString, $userMatch)) {
+                        $credentials['user'] = $userMatch[1];
+                    }
+                    if (preg_match('/\'database_password\'\s*=>\s*\'([^\']*)\'/s', $paramsString, $passMatch)) {
+                        $credentials['password'] = $passMatch[1];
+                    }
+                    if (preg_match('/\'database_name\'\s*=>\s*\'([^\']*)\'/s', $paramsString, $nameMatch)) {
+                        $credentials['name'] = $nameMatch[1];
+                    }
+                    
+                    // If we have all credentials, use them
+                    if (isset($credentials['host']) && isset($credentials['user']) && 
+                        isset($credentials['password']) && isset($credentials['name'])) {
+                        $this->logger->info("Using database credentials from parameters.php", [
+                            'host' => $credentials['host'],
+                            'user' => $credentials['user'],
+                            'name' => $credentials['name']
+                        ]);
+                        return $credentials;
+                    }
+                }
+            }
+        }
+        
+        // Check if we're in DDEV environment
+        if (getenv('DDEV_SITENAME') || $this->isDdevEnvironment()) {
+            $this->logger->info("Detected DDEV environment, using DDEV database credentials");
+            return [
+                'host' => 'db',
+                'user' => 'db', 
+                'password' => 'db',
+                'name' => 'db'
+            ];
+        }
+        
+        // Fallback to PrestaShop constants (may be incorrect after backup restore)
+        $this->logger->warning("Using PrestaShop constants as fallback (may be incorrect after restore)", [
+            'host' => _DB_SERVER_,
+            'user' => _DB_USER_,
+            'name' => _DB_NAME_
+        ]);
+        
+        return [
+            'host' => _DB_SERVER_,
+            'user' => _DB_USER_,
+            'password' => _DB_PASSWD_,
+            'name' => _DB_NAME_
+        ];
+    }
 
-
+    /**
+     * Check if we're running in DDEV environment
+     *
+     * @return bool
+     */
+    private function isDdevEnvironment(): bool
+    {
+        // Check for DDEV environment variables
+        if (getenv('DDEV_SITENAME') || getenv('DDEV_TLD')) {
+            return true;
+        }
+        
+        // Check for DDEV config file
+        $ddevConfig = _PS_ROOT_DIR_ . '/.ddev/config.yaml';
+        if (file_exists($ddevConfig)) {
+            return true;
+        }
+        
+        // Check if database host is 'db' (common in Docker environments including DDEV)
+        if (defined('_DB_SERVER_') && _DB_SERVER_ === 'db') {
+            return true;
+        }
+        
+        return false;
+    }
 
 }

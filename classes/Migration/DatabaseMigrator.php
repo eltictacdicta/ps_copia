@@ -47,6 +47,106 @@ class DatabaseMigrator
     }
 
     /**
+     * Get current database credentials from environment
+     * This ensures we use the correct credentials even after backup restoration
+     *
+     * @return array
+     */
+    private function getCurrentDbCredentials(): array
+    {
+        // First try to read from parameters.php (current environment)
+        $parametersFile = _PS_ROOT_DIR_ . '/app/config/parameters.php';
+        
+        if (file_exists($parametersFile)) {
+            $parametersContent = file_get_contents($parametersFile);
+            if ($parametersContent !== false) {
+                // Extract parameters array from file
+                $matches = [];
+                if (preg_match('/return\s+array\s*\(\s*\'parameters\'\s*=>\s*array\s*\((.*?)\)\s*,?\s*\)\s*;/s', $parametersContent, $matches)) {
+                    $paramsString = $matches[1];
+                    
+                    // Extract individual parameters
+                    $credentials = [];
+                    if (preg_match('/\'database_host\'\s*=>\s*\'([^\']*)\'/s', $paramsString, $hostMatch)) {
+                        $credentials['host'] = $hostMatch[1];
+                    }
+                    if (preg_match('/\'database_user\'\s*=>\s*\'([^\']*)\'/s', $paramsString, $userMatch)) {
+                        $credentials['user'] = $userMatch[1];
+                    }
+                    if (preg_match('/\'database_password\'\s*=>\s*\'([^\']*)\'/s', $paramsString, $passMatch)) {
+                        $credentials['password'] = $passMatch[1];
+                    }
+                    if (preg_match('/\'database_name\'\s*=>\s*\'([^\']*)\'/s', $paramsString, $nameMatch)) {
+                        $credentials['name'] = $nameMatch[1];
+                    }
+                    
+                    // If we have all credentials, use them
+                    if (isset($credentials['host']) && isset($credentials['user']) && 
+                        isset($credentials['password']) && isset($credentials['name'])) {
+                        $this->logger->info("Using database credentials from parameters.php", [
+                            'host' => $credentials['host'],
+                            'user' => $credentials['user'],
+                            'name' => $credentials['name']
+                        ]);
+                        return $credentials;
+                    }
+                }
+            }
+        }
+        
+        // Check if we're in DDEV environment
+        if (getenv('DDEV_SITENAME') || $this->isDdevEnvironment()) {
+            $this->logger->info("Detected DDEV environment, using DDEV database credentials");
+            return [
+                'host' => 'db',
+                'user' => 'db', 
+                'password' => 'db',
+                'name' => 'db'
+            ];
+        }
+        
+        // Fallback to PrestaShop constants (may be incorrect after backup restore)
+        $this->logger->warning("Using PrestaShop constants as fallback (may be incorrect after restore)", [
+            'host' => _DB_SERVER_,
+            'user' => _DB_USER_,
+            'name' => _DB_NAME_
+        ]);
+        
+        return [
+            'host' => _DB_SERVER_,
+            'user' => _DB_USER_,
+            'password' => _DB_PASSWD_,
+            'name' => _DB_NAME_
+        ];
+    }
+
+    /**
+     * Check if we're running in DDEV environment
+     *
+     * @return bool
+     */
+    private function isDdevEnvironment(): bool
+    {
+        // Check for DDEV environment variables
+        if (getenv('DDEV_SITENAME') || getenv('DDEV_TLD')) {
+            return true;
+        }
+        
+        // Check for DDEV config file
+        $ddevConfig = _PS_ROOT_DIR_ . '/.ddev/config.yaml';
+        if (file_exists($ddevConfig)) {
+            return true;
+        }
+        
+        // Check if database host is 'db' (common in Docker environments including DDEV)
+        if (defined('_DB_SERVER_') && _DB_SERVER_ === 'db') {
+            return true;
+        }
+        
+        return false;
+    }
+
+    /**
      * Migrate database content from external PrestaShop
      *
      * @param string $backupFile Path to database backup file
@@ -180,13 +280,14 @@ class DatabaseMigrator
     private function createTemporaryBackup(): string
     {
         $tempFile = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ps_copia_temp_backup_' . time() . '.sql.gz';
+        $credentials = $this->getCurrentDbCredentials();
         
         $command = sprintf(
             'mysqldump --single-transaction --routines --triggers --host=%s --user=%s --password=%s %s | gzip > %s',
-            escapeshellarg(_DB_SERVER_),
-            escapeshellarg(_DB_USER_),
-            escapeshellarg(_DB_PASSWD_),
-            escapeshellarg(_DB_NAME_),
+            escapeshellarg($credentials['host']),
+            escapeshellarg($credentials['user']),
+            escapeshellarg($credentials['password']),
+            escapeshellarg($credentials['name']),
             escapeshellarg($tempFile)
         );
 
@@ -212,24 +313,25 @@ class DatabaseMigrator
             throw new Exception("Database backup file does not exist: " . $backupFile);
         }
 
+        $credentials = $this->getCurrentDbCredentials();
         $isGzipped = pathinfo($backupFile, PATHINFO_EXTENSION) === 'gz';
         
         if ($isGzipped) {
             $command = sprintf(
                 'zcat %s | mysql --host=%s --user=%s --password=%s %s',
                 escapeshellarg($backupFile),
-                escapeshellarg(_DB_SERVER_),
-                escapeshellarg(_DB_USER_),
-                escapeshellarg(_DB_PASSWD_),
-                escapeshellarg(_DB_NAME_)
+                escapeshellarg($credentials['host']),
+                escapeshellarg($credentials['user']),
+                escapeshellarg($credentials['password']),
+                escapeshellarg($credentials['name'])
             );
         } else {
             $command = sprintf(
                 'mysql --host=%s --user=%s --password=%s %s < %s',
-                escapeshellarg(_DB_SERVER_),
-                escapeshellarg(_DB_USER_),
-                escapeshellarg(_DB_PASSWD_),
-                escapeshellarg(_DB_NAME_),
+                escapeshellarg($credentials['host']),
+                escapeshellarg($credentials['user']),
+                escapeshellarg($credentials['password']),
+                escapeshellarg($credentials['name']),
                 escapeshellarg($backupFile)
             );
         }
@@ -971,23 +1073,24 @@ class DatabaseMigrator
              $this->db->execute($createDbSql);
 
              // Restore backup to temporary database
+             $credentials = $this->getCurrentDbCredentials();
              $isGzipped = pathinfo($backupFile, PATHINFO_EXTENSION) === 'gz';
              
              if ($isGzipped) {
                  $command = sprintf(
                      'zcat %s | mysql --host=%s --user=%s --password=%s %s',
                      escapeshellarg($backupFile),
-                     escapeshellarg(_DB_SERVER_),
-                     escapeshellarg(_DB_USER_),
-                     escapeshellarg(_DB_PASSWD_),
+                     escapeshellarg($credentials['host']),
+                     escapeshellarg($credentials['user']),
+                     escapeshellarg($credentials['password']),
                      escapeshellarg($tempDbName)
                  );
              } else {
                  $command = sprintf(
                      'mysql --host=%s --user=%s --password=%s %s < %s',
-                     escapeshellarg(_DB_SERVER_),
-                     escapeshellarg(_DB_USER_),
-                     escapeshellarg(_DB_PASSWD_),
+                     escapeshellarg($credentials['host']),
+                     escapeshellarg($credentials['user']),
+                     escapeshellarg($credentials['password']),
                      escapeshellarg($tempDbName),
                      escapeshellarg($backupFile)
                  );
@@ -1157,4 +1260,563 @@ class DatabaseMigrator
              $this->logger->error("Failed to force update domain configuration: " . $e->getMessage());
          }
      }
-} 
+
+    /**
+     * Enhanced database migration with full environment adaptation
+     * This method handles all common restoration issues automatically
+     *
+     * @param string $backupFile Path to database backup file
+     * @param array $migrationConfig Migration configuration
+     * @throws Exception
+     */
+    public function migrateWithFullAdaptation(string $backupFile, array $migrationConfig): void
+    {
+        $this->logger->info("Starting enhanced database migration with full adaptation");
+        
+        try {
+            // Step 1: Preserve current environment credentials
+            $currentCredentials = $this->getCurrentDbCredentials();
+            $currentPrefix = $this->getCurrentPrefix();
+            
+            $this->logger->info("Current environment detected", [
+                'host' => $currentCredentials['host'],
+                'user' => $currentCredentials['user'],
+                'name' => $currentCredentials['name'],
+                'prefix' => $currentPrefix
+            ]);
+            
+            // Step 2: Analyze backup content
+            $backupInfo = $this->analyzeBackupContent($backupFile);
+            
+            $this->logger->info("Backup analysis completed", [
+                'source_prefix' => $backupInfo['prefix'],
+                'source_domain' => $backupInfo['domain'],
+                'total_tables' => $backupInfo['table_count']
+            ]);
+            
+            // Step 3: Clean existing data from destination database
+            if (!empty($migrationConfig['clean_destination']) && $migrationConfig['clean_destination']) {
+                $this->cleanDestinationDatabase($currentPrefix);
+            }
+            
+            // Step 4: Restore backup with prefix adaptation
+            $this->restoreBackupWithPrefixAdaptation($backupFile, $backupInfo['prefix'], $currentPrefix);
+            
+            // Step 5: Update URLs to current environment
+            $this->updateUrlsForCurrentEnvironment($currentPrefix);
+            
+            // Step 6: Disable problematic modules
+            $this->disableProblematicModules($currentPrefix);
+            
+            // Step 7: Preserve environment configuration
+            $this->preserveEnvironmentConfiguration($currentCredentials, $currentPrefix);
+            
+                         // Step 8: Clean cache and regenerate essentials
+             $this->cleanAndRegenerateCache();
+             
+             // Step 9: Ensure .htaccess exists (restore from backup if needed)
+             $this->ensureHtaccessExists();
+            
+            $this->logger->info("Enhanced database migration completed successfully");
+            
+        } catch (Exception $e) {
+            $this->logger->error("Enhanced database migration failed: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Get current database prefix from environment
+     *
+     * @return string
+     */
+    private function getCurrentPrefix(): string
+    {
+        if (defined('_DB_PREFIX_')) {
+            return _DB_PREFIX_;
+        }
+        
+        // Try to read from parameters.php
+        $parametersFile = _PS_ROOT_DIR_ . '/app/config/parameters.php';
+        if (file_exists($parametersFile)) {
+            $content = file_get_contents($parametersFile);
+            if (preg_match('/\'database_prefix\'\s*=>\s*\'([^\']*)\'/s', $content, $matches)) {
+                return $matches[1];
+            }
+        }
+        
+        return 'ps_'; // Default fallback
+    }
+
+    /**
+     * Analyze backup content to extract important information
+     *
+     * @param string $backupFile
+     * @return array
+     */
+    private function analyzeBackupContent(string $backupFile): array
+    {
+        $this->logger->info("Analyzing backup content");
+        
+        $result = [
+            'prefix' => '',
+            'domain' => '',
+            'table_count' => 0,
+            'problematic_modules' => []
+        ];
+        
+        try {
+            // Read backup file (handle both gzipped and plain SQL)
+            $isGzipped = pathinfo($backupFile, PATHINFO_EXTENSION) === 'gz';
+            
+            if ($isGzipped) {
+                $handle = gzopen($backupFile, 'r');
+                if (!$handle) {
+                    throw new Exception("Could not open gzipped backup file");
+                }
+            } else {
+                $handle = fopen($backupFile, 'r');
+                if (!$handle) {
+                    throw new Exception("Could not open backup file");
+                }
+            }
+            
+            $linesRead = 0;
+            $maxLines = 1000; // Limit analysis to first 1000 lines for performance
+            
+            while (($line = $isGzipped ? gzgets($handle) : fgets($handle)) !== false && $linesRead < $maxLines) {
+                $linesRead++;
+                
+                // Detect table prefix
+                if (empty($result['prefix']) && preg_match('/CREATE TABLE.*?`([^_]+_)/', $line, $matches)) {
+                    $result['prefix'] = $matches[1];
+                }
+                
+                // Count tables
+                if (strpos($line, 'CREATE TABLE') !== false) {
+                    $result['table_count']++;
+                }
+                
+                // Detect source domain from shop_url table
+                if (empty($result['domain']) && preg_match('/INSERT INTO.*?shop_url.*?VALUES.*?\'([^\']+\.[^\']+)\'/i', $line, $matches)) {
+                    $result['domain'] = $matches[1];
+                }
+                
+                // Detect problematic modules
+                if (preg_match('/INSERT INTO.*?module.*?VALUES.*?\'(ps_mbo|ps_eventbus|ps_metrics|ps_facebook|egh_)/i', $line, $matches)) {
+                    $result['problematic_modules'][] = $matches[1];
+                }
+            }
+            
+            if ($isGzipped) {
+                gzclose($handle);
+            } else {
+                fclose($handle);
+            }
+            
+        } catch (Exception $e) {
+            $this->logger->warning("Could not fully analyze backup content: " . $e->getMessage());
+        }
+        
+        return $result;
+    }
+
+    /**
+     * Clean destination database tables with current prefix
+     *
+     * @param string $currentPrefix
+     */
+    private function cleanDestinationDatabase(string $currentPrefix): void
+    {
+        $this->logger->info("Cleaning destination database with prefix: " . $currentPrefix);
+        
+        try {
+            // Get all tables with current prefix
+            $sql = "SHOW TABLES LIKE '" . $currentPrefix . "%'";
+            $tables = $this->db->executeS($sql);
+            
+            if (!empty($tables)) {
+                // Disable foreign key checks
+                $this->db->execute("SET FOREIGN_KEY_CHECKS = 0");
+                
+                foreach ($tables as $table) {
+                    $tableName = reset($table);
+                    $this->db->execute("DROP TABLE IF EXISTS `" . $tableName . "`");
+                }
+                
+                // Re-enable foreign key checks
+                $this->db->execute("SET FOREIGN_KEY_CHECKS = 1");
+                
+                $this->logger->info("Cleaned " . count($tables) . " existing tables");
+            }
+            
+        } catch (Exception $e) {
+            $this->logger->error("Failed to clean destination database: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Restore backup with prefix adaptation
+     *
+     * @param string $backupFile
+     * @param string $sourcePrefix
+     * @param string $targetPrefix
+     */
+    private function restoreBackupWithPrefixAdaptation(string $backupFile, string $sourcePrefix, string $targetPrefix): void
+    {
+        $this->logger->info("Restoring backup with prefix adaptation", [
+            'source_prefix' => $sourcePrefix,
+            'target_prefix' => $targetPrefix
+        ]);
+        
+        if ($sourcePrefix === $targetPrefix) {
+            // No prefix change needed, restore directly
+            $this->restoreExternalDatabase($backupFile);
+            return;
+        }
+        
+        // Create temporary adapted backup file
+        $tempFile = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ps_copia_adapted_' . time() . '.sql';
+        
+        try {
+            $this->createAdaptedBackup($backupFile, $tempFile, $sourcePrefix, $targetPrefix);
+            $this->restoreExternalDatabase($tempFile);
+            
+            // Clean up temporary file
+            @unlink($tempFile);
+            
+        } catch (Exception $e) {
+            @unlink($tempFile);
+            throw $e;
+        }
+    }
+
+    /**
+     * Create adapted backup with prefix changes
+     *
+     * @param string $sourceFile
+     * @param string $targetFile
+     * @param string $sourcePrefix
+     * @param string $targetPrefix
+     */
+    private function createAdaptedBackup(string $sourceFile, string $targetFile, string $sourcePrefix, string $targetPrefix): void
+    {
+        $this->logger->info("Creating adapted backup file");
+        
+        $isGzipped = pathinfo($sourceFile, PATHINFO_EXTENSION) === 'gz';
+        
+        if ($isGzipped) {
+            $sourceHandle = gzopen($sourceFile, 'r');
+        } else {
+            $sourceHandle = fopen($sourceFile, 'r');
+        }
+        
+        $targetHandle = fopen($targetFile, 'w');
+        
+        if (!$sourceHandle || !$targetHandle) {
+            throw new Exception("Could not open files for prefix adaptation");
+        }
+        
+        try {
+            while (($line = $isGzipped ? gzgets($sourceHandle) : fgets($sourceHandle)) !== false) {
+                // Replace table prefixes
+                $adaptedLine = str_replace('`' . $sourcePrefix, '`' . $targetPrefix, $line);
+                $adaptedLine = str_replace('INTO ' . $sourcePrefix, 'INTO ' . $targetPrefix, $adaptedLine);
+                
+                fwrite($targetHandle, $adaptedLine);
+            }
+            
+        } finally {
+            if ($isGzipped) {
+                gzclose($sourceHandle);
+            } else {
+                fclose($sourceHandle);
+            }
+            fclose($targetHandle);
+        }
+        
+        $this->logger->info("Adapted backup file created successfully");
+    }
+
+    /**
+     * Update URLs for current environment
+     *
+     * @param string $currentPrefix
+     */
+    private function updateUrlsForCurrentEnvironment(string $currentPrefix): void
+    {
+        $this->logger->info("Updating URLs for current environment");
+        
+        // Detect current domain
+        $currentDomain = $this->detectCurrentDomain();
+        
+        if (!$currentDomain) {
+            $this->logger->warning("Could not detect current domain, skipping URL updates");
+            return;
+        }
+        
+        try {
+            // Update shop_url table
+            $sql = "UPDATE `{$currentPrefix}shop_url` SET 
+                    `domain` = '" . pSQL($currentDomain) . "', 
+                    `domain_ssl` = '" . pSQL($currentDomain) . "'";
+            $this->db->execute($sql);
+            
+            // Update configuration
+            $configUpdates = [
+                'PS_SHOP_DOMAIN' => $currentDomain,
+                'PS_SHOP_DOMAIN_SSL' => $currentDomain
+            ];
+            
+            foreach ($configUpdates as $key => $value) {
+                $sql = "UPDATE `{$currentPrefix}configuration` SET 
+                        `value` = '" . pSQL($value) . "' 
+                        WHERE `name` = '" . pSQL($key) . "'";
+                $this->db->execute($sql);
+            }
+            
+            $this->logger->info("URLs updated to: " . $currentDomain);
+            
+        } catch (Exception $e) {
+            $this->logger->error("Failed to update URLs: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Detect current domain from environment
+     *
+     * @return string|null
+     */
+    private function detectCurrentDomain(): ?string
+    {
+        // Check DDEV environment
+        if ($this->isDdevEnvironment()) {
+            $ddevSiteName = getenv('DDEV_SITENAME');
+            if ($ddevSiteName) {
+                return $ddevSiteName . '.ddev.site';
+            }
+            
+            // Try to read from DDEV config
+            $ddevConfig = _PS_ROOT_DIR_ . '/.ddev/config.yaml';
+            if (file_exists($ddevConfig)) {
+                $content = file_get_contents($ddevConfig);
+                if (preg_match('/^name:\s*(.+)$/m', $content, $matches)) {
+                    return trim($matches[1]) . '.ddev.site';
+                }
+            }
+        }
+        
+        // Try HTTP_HOST
+        if (isset($_SERVER['HTTP_HOST']) && !empty($_SERVER['HTTP_HOST'])) {
+            return $_SERVER['HTTP_HOST'];
+        }
+        
+        return null;
+    }
+
+    /**
+     * Disable problematic modules that commonly cause issues after restoration
+     *
+     * @param string $currentPrefix
+     */
+    private function disableProblematicModules(string $currentPrefix): void
+    {
+        $this->logger->info("Disabling problematic modules");
+        
+        $problematicModules = [
+            'ps_mbo',
+            'ps_eventbus', 
+            'ps_metrics',
+            'ps_facebook',
+            'ps_googleanalytics',
+            'ps_checkpayment'  // Often causes issues in dev environments
+        ];
+        
+        // Also disable any module starting with custom prefixes that often cause issues
+        $problematicPrefixes = ['egh_', 'custom_', 'dev_'];
+        
+        try {
+            // Disable specific modules
+            foreach ($problematicModules as $module) {
+                $sql = "UPDATE `{$currentPrefix}module` SET `active` = 0 WHERE `name` = '" . pSQL($module) . "'";
+                $this->db->execute($sql);
+            }
+            
+            // Disable modules with problematic prefixes
+            foreach ($problematicPrefixes as $prefix) {
+                $sql = "UPDATE `{$currentPrefix}module` SET `active` = 0 WHERE `name` LIKE '" . pSQL($prefix) . "%'";
+                $this->db->execute($sql);
+            }
+            
+            $this->logger->info("Problematic modules disabled");
+            
+        } catch (Exception $e) {
+            $this->logger->error("Failed to disable problematic modules: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Preserve environment configuration (database credentials, etc.)
+     *
+     * @param array $credentials
+     * @param string $currentPrefix
+     */
+    private function preserveEnvironmentConfiguration(array $credentials, string $currentPrefix): void
+    {
+        $this->logger->info("Preserving environment configuration");
+        
+        try {
+            // Update parameters.php to ensure correct database credentials
+            $parametersFile = _PS_ROOT_DIR_ . '/app/config/parameters.php';
+            
+            if (file_exists($parametersFile)) {
+                $content = file_get_contents($parametersFile);
+                
+                // Preserve current environment credentials
+                $replacements = [
+                    "'database_host' => '[^']*'" => "'database_host' => '" . $credentials['host'] . "'",
+                    "'database_user' => '[^']*'" => "'database_user' => '" . $credentials['user'] . "'", 
+                    "'database_password' => '[^']*'" => "'database_password' => '" . $credentials['password'] . "'",
+                    "'database_name' => '[^']*'" => "'database_name' => '" . $credentials['name'] . "'",
+                    "'database_prefix' => '[^']*'" => "'database_prefix' => '" . $currentPrefix . "'"
+                ];
+                
+                foreach ($replacements as $pattern => $replacement) {
+                    $content = preg_replace('/' . $pattern . '/', $replacement, $content);
+                }
+                
+                file_put_contents($parametersFile, $content);
+                
+                $this->logger->info("Environment configuration preserved in parameters.php");
+            }
+            
+        } catch (Exception $e) {
+            $this->logger->error("Failed to preserve environment configuration: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Clean cache and regenerate essential files
+     */
+    private function cleanAndRegenerateCache(): void
+    {
+        $this->logger->info("Cleaning cache and regenerating essentials");
+        
+        try {
+            // Clear common cache directories
+            $cacheDirs = [
+                _PS_ROOT_DIR_ . '/var/cache/',
+                _PS_ROOT_DIR_ . '/cache/',
+                _PS_ROOT_DIR_ . '/app/cache/'
+            ];
+            
+            foreach ($cacheDirs as $cacheDir) {
+                if (is_dir($cacheDir)) {
+                    $this->recursiveDelete($cacheDir, true); // Keep directory, delete contents
+                }
+            }
+            
+            $this->logger->info("Cache cleaned successfully");
+            
+        } catch (Exception $e) {
+            $this->logger->error("Failed to clean cache: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Recursively delete directory contents
+     *
+     * @param string $dir
+     * @param bool $keepDir
+     */
+    private function recursiveDelete(string $dir, bool $keepDir = false): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+        
+        $files = array_diff(scandir($dir), ['.', '..']);
+        
+        foreach ($files as $file) {
+            $path = $dir . DIRECTORY_SEPARATOR . $file;
+            
+            if (is_dir($path)) {
+                $this->recursiveDelete($path);
+            } else {
+                @unlink($path);
+            }
+        }
+        
+                 if (!$keepDir) {
+             @rmdir($dir);
+         }
+     }
+
+     /**
+      * Ensure .htaccess file exists for proper functioning
+      * This handles cases where .htaccess might be missing
+      */
+     private function ensureHtaccessExists(): void
+     {
+         $this->logger->info("Checking .htaccess file status");
+         
+         $htaccessPath = _PS_ROOT_DIR_ . '/.htaccess';
+         $htaccessBackupPath = _PS_ROOT_DIR_ . '/.htaccess2';
+         
+         try {
+             // If .htaccess doesn't exist but .htaccess2 does, restore it
+             if (!file_exists($htaccessPath) && file_exists($htaccessBackupPath)) {
+                 copy($htaccessBackupPath, $htaccessPath);
+                 $this->logger->info(".htaccess restored from .htaccess2 backup");
+             } 
+             // If neither exists, generate a minimal .htaccess
+             elseif (!file_exists($htaccessPath)) {
+                 $this->generateMinimalHtaccess($htaccessPath);
+                 $this->logger->info("Minimal .htaccess generated");
+             } 
+             else {
+                 $this->logger->info(".htaccess file already exists");
+             }
+             
+         } catch (Exception $e) {
+             $this->logger->error("Failed to ensure .htaccess exists: " . $e->getMessage());
+         }
+     }
+
+     /**
+      * Generate a minimal .htaccess file for PrestaShop
+      *
+      * @param string $htaccessPath
+      */
+     private function generateMinimalHtaccess(string $htaccessPath): void
+     {
+         $content = '# Basic PrestaShop .htaccess
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php [L]
+
+# Disable directory browsing
+Options -Indexes
+
+# Block access to sensitive files
+<Files ~ "\.tpl$">
+    Order allow,deny
+    Deny from all
+</Files>
+
+<Files ~ "\.yml$">
+    Order allow,deny
+    Deny from all
+</Files>
+
+<Files ~ "\.log$">
+    Order allow,deny
+    Deny from all
+</Files>
+';
+         
+         file_put_contents($htaccessPath, $content);
+     }
+ }  
