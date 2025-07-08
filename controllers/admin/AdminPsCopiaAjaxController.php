@@ -1609,23 +1609,542 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
     }
 
     /**
-     * Generate download URL for exported backup
+     * Handle backup import with chunked processing for large files
      */
-    private function getDownloadUrl(string $filePath): string
+    private function handleImportBackup(): void
     {
-        $filename = basename($filePath);
-        $token = $this->context->controller ? Tools::getAdminTokenLite('AdminPsCopiaAjax') : '';
+        $this->logger->info("Starting backup import");
+
+        try {
+            // Optimizar para operaciones grandes
+            $this->optimizeForLargeOperations();
+            
+            // Verificar que se subió un archivo
+            if (!isset($_FILES['backup_file'])) {
+                throw new Exception('No se ha seleccionado ningún archivo');
+            }
+            
+            $uploadedFile = $_FILES['backup_file'];
+            
+            if ($uploadedFile['error'] !== UPLOAD_ERR_OK) {
+                throw new Exception('Error al subir el archivo: ' . $this->getUploadError($uploadedFile['error']));
+            }
+            
+            // Verificar que es un archivo ZIP
+            $fileInfo = pathinfo($uploadedFile['name']);
+            if (strtolower($fileInfo['extension']) !== 'zip') {
+                throw new Exception('El archivo debe ser un ZIP válido');
+            }
+            
+            // Verificar tamaño del archivo
+            $fileSize = $uploadedFile['size'];
+            $this->logger->info("Processing backup file", [
+                'filename' => $uploadedFile['name'],
+                'size' => $this->formatBytes($fileSize)
+            ]);
+            
+            $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
+            $tempZipPath = $backupDir . DIRECTORY_SEPARATOR . 'temp_import_' . time() . '.zip';
+            
+            // Mover archivo subido con verificación
+            if (!move_uploaded_file($uploadedFile['tmp_name'], $tempZipPath)) {
+                throw new Exception('Error al mover el archivo subido');
+            }
+            
+            // Verificar integridad del ZIP
+            if (!$this->verifyZipIntegrity($tempZipPath)) {
+                @unlink($tempZipPath);
+                throw new Exception('El archivo ZIP está corrupto o dañado');
+            }
+
+            // Determinar si es un archivo grande
+            $isLargeFile = $fileSize > 100 * 1024 * 1024; // 100MB
+            
+            if ($isLargeFile) {
+                $this->logger->info("Large file detected, using streaming import");
+                $this->processLargeBackupImport($tempZipPath, $uploadedFile['name']);
+            } else {
+                $this->processStandardBackupImport($tempZipPath, $uploadedFile['name']);
+            }
+            
+        } catch (Exception $e) {
+            $this->logger->error("Backup import failed: " . $e->getMessage());
+            $this->ajaxError($e->getMessage());
+        }
+    }
+
+    /**
+     * Verify ZIP file integrity without loading entire file into memory
+     *
+     * @param string $zipPath
+     * @return bool
+     */
+    private function verifyZipIntegrity(string $zipPath): bool
+    {
+        $zip = new ZipArchive();
+        $result = $zip->open($zipPath, ZipArchive::CHECKCONS);
         
-        return $this->context->link->getAdminLink('AdminPsCopiaAjax', true, [], [
-            'ajax' => true,
-            'action' => 'download_export',
-            'file' => $filename,
-            'token' => $token
+        if ($result === TRUE) {
+            $zip->close();
+            return true;
+        }
+        
+        $this->logger->warning("ZIP integrity check failed", [
+            'error_code' => $result,
+            'error_message' => $this->getZipError($result)
+        ]);
+        
+        return false;
+    }
+
+    /**
+     * Process standard backup import for smaller files
+     *
+     * @param string $tempZipPath
+     * @param string $originalFilename
+     * @throws Exception
+     */
+    private function processStandardBackupImport(string $tempZipPath, string $originalFilename): void
+    {
+        $zip = new ZipArchive();
+        $result = $zip->open($tempZipPath);
+        
+        if ($result !== TRUE) {
+            @unlink($tempZipPath);
+            throw new Exception('No se pudo abrir el archivo ZIP: ' . $this->getZipError($result));
+        }
+        
+        try {
+            // Verificar estructura del backup
+            if (!$this->validateBackupStructure($zip)) {
+                throw new Exception('El archivo ZIP no tiene la estructura correcta de backup');
+            }
+            
+            // Leer metadata
+            $backupInfo = $this->extractBackupInfo($zip);
+            
+            // Generar nuevo nombre único
+            $timestamp = date('Y-m-d_H-i-s');
+            $newBackupName = 'imported_backup_' . $timestamp;
+            
+            // Extraer archivos usando método estándar
+            $this->extractBackupStandard($zip, $newBackupName, $originalFilename, $backupInfo);
+            
+        } finally {
+            $zip->close();
+            @unlink($tempZipPath);
+        }
+    }
+
+    /**
+     * Process large backup import using streaming
+     *
+     * @param string $tempZipPath
+     * @param string $originalFilename
+     * @throws Exception
+     */
+    private function processLargeBackupImport(string $tempZipPath, string $originalFilename): void
+    {
+        $zip = new ZipArchive();
+        $result = $zip->open($tempZipPath);
+        
+        if ($result !== TRUE) {
+            @unlink($tempZipPath);
+            throw new Exception('No se pudo abrir el archivo ZIP: ' . $this->getZipError($result));
+        }
+        
+        try {
+            // Verificar estructura del backup
+            if (!$this->validateBackupStructure($zip)) {
+                throw new Exception('El archivo ZIP no tiene la estructura correcta de backup');
+            }
+            
+            // Leer metadata
+            $backupInfo = $this->extractBackupInfo($zip);
+            
+            // Generar nuevo nombre único
+            $timestamp = date('Y-m-d_H-i-s');
+            $newBackupName = 'imported_backup_' . $timestamp;
+            
+            // Extraer usando streaming para archivos grandes
+            $this->extractBackupStreaming($zip, $newBackupName, $originalFilename, $backupInfo);
+            
+        } finally {
+            $zip->close();
+            @unlink($tempZipPath);
+        }
+    }
+
+    /**
+     * Validate backup structure
+     *
+     * @param ZipArchive $zip
+     * @return bool
+     */
+    private function validateBackupStructure(ZipArchive $zip): bool
+    {
+        $hasInfo = $zip->locateName('backup_info.json') !== false;
+        $hasDatabase = false;
+        $hasFiles = false;
+        
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $filename = $zip->getNameIndex($i);
+            if (strpos($filename, 'database/') === 0) {
+                $hasDatabase = true;
+            }
+            if (strpos($filename, 'files/') === 0) {
+                $hasFiles = true;
+            }
+            
+            // Optimización: salir temprano si encontramos todo
+            if ($hasInfo && $hasDatabase && $hasFiles) {
+                break;
+            }
+        }
+        
+        return $hasInfo && $hasDatabase && $hasFiles;
+    }
+
+    /**
+     * Extract backup info from ZIP
+     *
+     * @param ZipArchive $zip
+     * @return array
+     * @throws Exception
+     */
+    private function extractBackupInfo(ZipArchive $zip): array
+    {
+        $infoContent = $zip->getFromName('backup_info.json');
+        $backupInfo = json_decode($infoContent, true);
+        
+        if (!$backupInfo) {
+            throw new Exception('No se pudo leer la información del backup');
+        }
+        
+        return $backupInfo;
+    }
+
+    /**
+     * Extract backup using standard method
+     *
+     * @param ZipArchive $zip
+     * @param string $newBackupName
+     * @param string $originalFilename
+     * @param array $backupInfo
+     * @throws Exception
+     */
+    private function extractBackupStandard(ZipArchive $zip, string $newBackupName, string $originalFilename, array $backupInfo): void
+    {
+        $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
+        $extractPath = $backupDir . DIRECTORY_SEPARATOR . 'temp_extract_' . time();
+        
+        if (!$zip->extractTo($extractPath)) {
+            throw new Exception('Error al extraer los archivos del backup');
+        }
+        
+        try {
+            $this->processExtractedFiles($extractPath, $newBackupName, $originalFilename, $backupInfo);
+        } finally {
+            $this->removeDirectoryRecursively($extractPath);
+        }
+    }
+
+    /**
+     * Extract backup using streaming for large files
+     *
+     * @param ZipArchive $zip
+     * @param string $newBackupName
+     * @param string $originalFilename
+     * @param array $backupInfo
+     * @throws Exception
+     */
+    private function extractBackupStreaming(ZipArchive $zip, string $newBackupName, string $originalFilename, array $backupInfo): void
+    {
+        $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
+        
+        // Encontrar archivos de backup en el ZIP
+        $dbFiles = [];
+        $filesFiles = [];
+        
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $filename = $zip->getNameIndex($i);
+            
+            if (strpos($filename, 'database/') === 0 && !$zip->isDir($i)) {
+                $dbFiles[] = $filename;
+            } elseif (strpos($filename, 'files/') === 0 && !$zip->isDir($i)) {
+                $filesFiles[] = $filename;
+            }
+        }
+        
+        if (empty($dbFiles) || empty($filesFiles)) {
+            throw new Exception('Archivos de backup incompletos');
+        }
+        
+        // Extraer archivo de base de datos usando streaming
+        $dbFilename = $dbFiles[0];
+        $newDbFilename = $newBackupName . '_db_' . basename($dbFilename);
+        $newDbPath = $backupDir . DIRECTORY_SEPARATOR . $newDbFilename;
+        
+        $this->extractFileStreaming($zip, $dbFilename, $newDbPath);
+        
+        // Extraer archivo de archivos usando streaming
+        $filesFilename = $filesFiles[0];
+        $newFilesFilename = $newBackupName . '_files_' . basename($filesFilename);
+        $newFilesPath = $backupDir . DIRECTORY_SEPARATOR . $newFilesFilename;
+        
+        $this->extractFileStreaming($zip, $filesFilename, $newFilesPath);
+        
+        // Actualizar metadata
+        $this->saveImportedBackupMetadata($newBackupName, $newDbFilename, $newFilesFilename, $originalFilename, $backupInfo);
+        
+        $this->logger->info("Large backup import completed successfully", [
+            'new_backup_name' => $newBackupName,
+            'original_filename' => $originalFilename
+        ]);
+        
+        $this->ajaxSuccess('Backup grande importado correctamente como: ' . $newBackupName, [
+            'backup_name' => $newBackupName,
+            'imported_from' => $originalFilename
         ]);
     }
 
     /**
-     * Handle backup export download
+     * Extract single file from ZIP using streaming to avoid memory issues
+     *
+     * @param ZipArchive $zip
+     * @param string $filename
+     * @param string $outputPath
+     * @throws Exception
+     */
+    private function extractFileStreaming(ZipArchive $zip, string $filename, string $outputPath): void
+    {
+        $stream = $zip->getStream($filename);
+        if (!$stream) {
+            throw new Exception('No se pudo obtener stream del archivo: ' . $filename);
+        }
+        
+        $output = fopen($outputPath, 'wb');
+        if (!$output) {
+            fclose($stream);
+            throw new Exception('No se pudo crear archivo de salida: ' . $outputPath);
+        }
+        
+        try {
+            $chunkSize = 8192; // 8KB chunks
+            $totalWritten = 0;
+            
+            while (!feof($stream)) {
+                $chunk = fread($stream, $chunkSize);
+                if ($chunk === false) {
+                    throw new Exception('Error leyendo stream del archivo: ' . $filename);
+                }
+                
+                $written = fwrite($output, $chunk);
+                if ($written === false) {
+                    throw new Exception('Error escribiendo archivo: ' . $outputPath);
+                }
+                
+                $totalWritten += $written;
+                
+                // Prevenir timeout y limpiar memoria periódicamente
+                if ($totalWritten % (1024 * 1024) === 0) { // Cada MB
+                    $this->preventTimeout();
+                    $this->clearMemory();
+                }
+            }
+            
+            $this->logger->debug("Extracted file using streaming", [
+                'filename' => $filename,
+                'output_path' => basename($outputPath),
+                'size' => $this->formatBytes($totalWritten)
+            ]);
+            
+        } finally {
+            fclose($stream);
+            fclose($output);
+        }
+    }
+
+    /**
+     * Process extracted files from standard extraction
+     *
+     * @param string $extractPath
+     * @param string $newBackupName
+     * @param string $originalFilename
+     * @param array $backupInfo
+     * @throws Exception
+     */
+    private function processExtractedFiles(string $extractPath, string $newBackupName, string $originalFilename, array $backupInfo): void
+    {
+        $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
+        
+        // Mover archivos extraídos a sus ubicaciones finales
+        $dbSourcePath = $extractPath . DIRECTORY_SEPARATOR . 'database';
+        $filesSourcePath = $extractPath . DIRECTORY_SEPARATOR . 'files';
+        
+        $dbFiles = glob($dbSourcePath . DIRECTORY_SEPARATOR . '*');
+        $filesFiles = glob($filesSourcePath . DIRECTORY_SEPARATOR . '*');
+        
+        if (empty($dbFiles) || empty($filesFiles)) {
+            throw new Exception('Archivos de backup incompletos');
+        }
+        
+        // Copiar archivos con nuevos nombres
+        $newDbFilename = $newBackupName . '_db_' . basename($dbFiles[0]);
+        $newFilesFilename = $newBackupName . '_files_' . basename($filesFiles[0]);
+        
+        $newDbPath = $backupDir . DIRECTORY_SEPARATOR . $newDbFilename;
+        $newFilesPath = $backupDir . DIRECTORY_SEPARATOR . $newFilesFilename;
+        
+        // Usar copy optimizado para archivos grandes
+        if (!$this->copyFileOptimized($dbFiles[0], $newDbPath)) {
+            throw new Exception('Error al copiar el archivo de base de datos');
+        }
+        
+        if (!$this->copyFileOptimized($filesFiles[0], $newFilesPath)) {
+            @unlink($newDbPath);
+            throw new Exception('Error al copiar el archivo de archivos');
+        }
+        
+        // Actualizar metadata
+        $this->saveImportedBackupMetadata($newBackupName, $newDbFilename, $newFilesFilename, $originalFilename, $backupInfo);
+        
+        $this->logger->info("Backup import completed successfully", [
+            'new_backup_name' => $newBackupName,
+            'original_filename' => $originalFilename
+        ]);
+        
+        $this->ajaxSuccess('Backup importado correctamente como: ' . $newBackupName, [
+            'backup_name' => $newBackupName,
+            'imported_from' => $originalFilename
+        ]);
+    }
+
+    /**
+     * Copy file optimized for large files
+     *
+     * @param string $source
+     * @param string $destination
+     * @return bool
+     */
+    private function copyFileOptimized(string $source, string $destination): bool
+    {
+        $sourceSize = filesize($source);
+        
+        // Para archivos pequeños, usar copy estándar
+        if ($sourceSize < 50 * 1024 * 1024) { // 50MB
+            return copy($source, $destination);
+        }
+        
+        // Para archivos grandes, usar streaming
+        $sourceHandle = fopen($source, 'rb');
+        $destHandle = fopen($destination, 'wb');
+        
+        if (!$sourceHandle || !$destHandle) {
+            if ($sourceHandle) fclose($sourceHandle);
+            if ($destHandle) fclose($destHandle);
+            return false;
+        }
+        
+        try {
+            $chunkSize = 1024 * 1024; // 1MB chunks
+            $totalCopied = 0;
+            
+            while (!feof($sourceHandle)) {
+                $chunk = fread($sourceHandle, $chunkSize);
+                if ($chunk === false) {
+                    return false;
+                }
+                
+                if (fwrite($destHandle, $chunk) === false) {
+                    return false;
+                }
+                
+                $totalCopied += strlen($chunk);
+                
+                // Prevenir timeout cada 10MB
+                if ($totalCopied % (10 * 1024 * 1024) === 0) {
+                    $this->preventTimeout();
+                    $this->clearMemory();
+                }
+            }
+            
+            return true;
+            
+        } finally {
+            fclose($sourceHandle);
+            fclose($destHandle);
+        }
+    }
+
+    /**
+     * Save imported backup metadata
+     *
+     * @param string $newBackupName
+     * @param string $newDbFilename
+     * @param string $newFilesFilename
+     * @param string $originalFilename
+     * @param array $backupInfo
+     */
+    private function saveImportedBackupMetadata(string $newBackupName, string $newDbFilename, string $newFilesFilename, string $originalFilename, array $backupInfo): void
+    {
+        $newBackupData = [
+            'backup_name' => $newBackupName,
+            'database_file' => $newDbFilename,
+            'files_file' => $newFilesFilename,
+            'created_at' => date('Y-m-d H:i:s'),
+            'type' => 'complete',
+            'imported_from' => $originalFilename,
+            'original_backup' => $backupInfo['backup_name'] ?? 'unknown'
+        ];
+        
+        $this->saveBackupMetadata($newBackupData);
+    }
+
+    /**
+     * Get download URL for exported backup
+     *
+     * @param string $filePath
+     * @return string
+     */
+    private function getDownloadUrl(string $filePath): string
+    {
+        $filename = basename($filePath);
+        return Context::getContext()->link->getAdminLink('AdminPsCopiaAjax') . 
+               '&action=download_export&file=' . urlencode($filename) . 
+               '&token=' . Tools::getAdminTokenLite('AdminPsCopiaAjax');
+    }
+
+    /**
+     * Get upload error message
+     *
+     * @param int $errorCode
+     * @return string
+     */
+    private function getUploadError(int $errorCode): string
+    {
+        switch ($errorCode) {
+            case UPLOAD_ERR_INI_SIZE:
+                return 'El archivo es demasiado grande (excede upload_max_filesize)';
+            case UPLOAD_ERR_FORM_SIZE:
+                return 'El archivo es demasiado grande (excede MAX_FILE_SIZE)';
+            case UPLOAD_ERR_PARTIAL:
+                return 'El archivo se subió parcialmente';
+            case UPLOAD_ERR_NO_FILE:
+                return 'No se seleccionó ningún archivo';
+            case UPLOAD_ERR_NO_TMP_DIR:
+                return 'Falta el directorio temporal';
+            case UPLOAD_ERR_CANT_WRITE:
+                return 'Error al escribir el archivo en el disco';
+            case UPLOAD_ERR_EXTENSION:
+                return 'Una extensión de PHP detuvo la subida del archivo';
+            default:
+                return 'Error desconocido al subir el archivo: ' . $errorCode;
+        }
+    }
+
+    /**
+     * Handle download of exported backup files
      */
     private function handleDownloadExport(): void
     {
@@ -1636,52 +2155,47 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             return;
         }
 
-        // Validar nombre de archivo por seguridad
-        if (!preg_match('/^[a-zA-Z0-9_-]+_export\.zip$/', $filename)) {
-            $this->ajaxError('Nombre de archivo no válido');
-            return;
-        }
-
-        $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
-        $filePath = $backupDir . DIRECTORY_SEPARATOR . $filename;
-
-        if (!file_exists($filePath)) {
-            $this->ajaxError('Archivo no encontrado');
-            return;
-        }
-
         try {
-            // Establecer headers para descarga
-            $fileSize = filesize($filePath);
+            $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
+            $filePath = $backupDir . DIRECTORY_SEPARATOR . $filename;
             
-            header('Content-Type: application/zip');
-            header('Content-Disposition: attachment; filename="' . $filename . '"');
-            header('Content-Length: ' . $fileSize);
-            header('Cache-Control: must-revalidate');
-            header('Pragma: public');
-            
-            // Descargar archivo
-            if ($fileSize > 50 * 1024 * 1024) { // 50MB
-                // Para archivos grandes, usar readfile con buffer
-                if ($file = fopen($filePath, 'rb')) {
-                    while (!feof($file) && connection_status() == 0) {
-                        echo fread($file, 8192);
-                        flush();
-                    }
-                    fclose($file);
-                }
-            } else {
-                // Para archivos pequeños, usar readfile directo
-                readfile($filePath);
+            // Verificar que el archivo existe y está en el directorio correcto
+            if (!file_exists($filePath) || !is_file($filePath)) {
+                throw new Exception('Archivo no encontrado');
             }
             
-            // Limpiar archivo temporal después de la descarga
-            @unlink($filePath);
+            // Verificar que el archivo está dentro del directorio de backups (seguridad)
+            $realBackupDir = realpath($backupDir);
+            $realFilePath = realpath($filePath);
             
-            $this->logger->info("Backup export downloaded successfully", [
-                'filename' => $filename,
-                'size' => $fileSize
-            ]);
+            if (!$realFilePath || strpos($realFilePath, $realBackupDir) !== 0) {
+                throw new Exception('Acceso denegado al archivo');
+            }
+            
+            // Verificar que es un archivo de exportación
+            if (strpos($filename, '_export.zip') === false) {
+                throw new Exception('Tipo de archivo no válido');
+            }
+            
+            $this->logger->info("Starting file download", ['filename' => $filename]);
+            
+            // Configurar headers para descarga
+            header('Content-Type: application/zip');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
+            header('Content-Length: ' . filesize($filePath));
+            header('Cache-Control: no-cache, must-revalidate');
+            header('Expires: 0');
+            
+            // Limpiar buffer de salida
+            if (ob_get_level()) {
+                ob_end_clean();
+            }
+            
+            // Enviar archivo
+            readfile($filePath);
+            
+            // Eliminar archivo temporal después de la descarga
+            @unlink($filePath);
             
             exit;
             
@@ -1914,26 +2428,33 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             $newBackupName = 'migrated_backup_' . $timestamp;
             
             // Actualizar metadata
-            $metadata = [
+            $newBackupData = [
                 'backup_name' => $newBackupName,
                 'database_file' => basename($dbFile),
                 'files_file' => basename($filesFile),
                 'created_at' => date('Y-m-d H:i:s'),
                 'type' => 'complete',
-                'source' => 'migration',
-                'original_name' => $backupInfo['backup_name'] ?? 'unknown',
+                'imported_from' => $uploadedFile['name'],
+                'original_backup' => $backupInfo['backup_name'] ?? 'unknown',
+                'migration_applied' => true,
                 'migration_config' => $migrationConfig
             ];
             
-            $this->saveBackupMetadata($metadata);
+            $this->saveBackupMetadata($newBackupData);
             
-            // Cleanup
+            // Limpiar archivos temporales
             $this->removeDirectoryRecursively($extractPath);
             @unlink($tempZipPath);
             
-            $this->logger->info("Migration import completed successfully");
-            $this->ajaxSuccess('Backup migrado e importado exitosamente', [
+            $this->logger->info("Backup import with migration completed successfully", [
+                'new_backup_name' => $newBackupName,
+                'original_filename' => $uploadedFile['name'],
+                'migration_config' => $migrationConfig
+            ]);
+            
+            $this->ajaxSuccess('Backup importado y migrado correctamente como: ' . $newBackupName, [
                 'backup_name' => $newBackupName,
+                'imported_from' => $uploadedFile['name'],
                 'migration_applied' => true
             ]);
             

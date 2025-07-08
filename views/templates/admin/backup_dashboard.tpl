@@ -66,14 +66,15 @@
                         <div class="btn-group-vertical" style="width: 100%;">
                             <button id="uploadBackupBtn" class="btn btn-lg btn-warning" style="margin-bottom: 8px;">
                                 <i class="icon-upload"></i>
-                                Subir Backup Simple
+                                Importar Backup
                             </button>
-                            <button id="serverUploadsBtn" class="btn btn-lg btn-info" style="margin-bottom: 8px;">
+                            <button id="serverUploadsBtn" class="btn btn-lg btn-info">
                                 <i class="icon-hdd"></i>
                                 Importar desde Servidor
                             </button>
                         </div>
                         <small class="help-block" style="margin-top: 10px;">
+                            <strong>Importar:</strong> Detecta automáticamente configuraciones de otros PrestaShop<br>
                             <strong>Servidor:</strong> Para archivos grandes subidos por FTP/SFTP
                         </small>
                     </div>
@@ -203,6 +204,7 @@
                 <button type="button" class="btn btn-warning" id="confirmUploadBtn">
                     <i class="icon-upload"></i> Subir Backup
                 </button>
+
             </div>
         </div>
     </div>
@@ -1015,6 +1017,8 @@ $(document).ready(function() {
         $('#upload-progress .progress-bar').css('width', '0%');
         $('#confirmUploadBtn').prop('disabled', false).html('<i class="icon-upload"></i> Subir Backup');
     });
+
+
 
 
     // === FUNCIONALIDAD DE UPLOADS DEL SERVIDOR ===
