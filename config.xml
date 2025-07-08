@@ -2,7 +2,7 @@
 <module>
     <n>ps_copia</n>
     <displayName><![CDATA[Asistente de Copias de Seguridad]]></displayName>
-    <version><![CDATA[1.1.0]]></version>
+    <version><![CDATA[1.1.1]]></version>
     <description><![CDATA[El módulo Asistente de Copias de Seguridad te ayuda a crear copias de seguridad y restaurar tu tienda PrestaShop. Con solo unos clics, puedes crear y restaurar copias de seguridad con confianza.]]></description>
     <author><![CDATA[PrestaShop]]></author>
     <tab><![CDATA[administration]]></tab>
