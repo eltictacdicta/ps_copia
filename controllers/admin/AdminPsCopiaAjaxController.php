@@ -2079,14 +2079,28 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         $newDbFilename = $newBackupName . '_db_' . basename($dbFilename);
         $newDbPath = $backupDir . DIRECTORY_SEPARATOR . $newDbFilename;
         
+        $this->logger->info("Starting database file extraction", [
+            'db_filename' => $dbFilename,
+            'output_path' => $newDbPath
+        ]);
+        
         $this->extractFileStreaming($zip, $dbFilename, $newDbPath);
+        
+        $this->logger->info("Database file extraction completed");
         
         // Extraer archivo de archivos usando streaming
         $filesFilename = $filesFiles[0];
         $newFilesFilename = $newBackupName . '_files_' . basename($filesFilename);
         $newFilesPath = $backupDir . DIRECTORY_SEPARATOR . $newFilesFilename;
         
+        $this->logger->info("Starting files archive extraction", [
+            'files_filename' => $filesFilename,
+            'output_path' => $newFilesPath
+        ]);
+        
         $this->extractFileStreaming($zip, $filesFilename, $newFilesPath);
+        
+        $this->logger->info("Files archive extraction completed");
         
         // Actualizar metadata
         $this->saveImportedBackupMetadata($newBackupName, $newDbFilename, $newFilesFilename, $originalFilename, $backupInfo);
@@ -2118,50 +2132,77 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
      */
     private function extractFileStreaming(ZipArchive $zip, string $filename, string $outputPath): void
     {
+        $this->logger->info("Starting extractFileStreaming", [
+            'filename' => $filename,
+            'output_path' => $outputPath
+        ]);
+        
         $stream = $zip->getStream($filename);
         if (!$stream) {
+            $this->logger->error("Failed to get stream for file: " . $filename);
             throw new Exception('No se pudo obtener stream del archivo: ' . $filename);
         }
+        
+        $this->logger->info("Stream obtained successfully, opening output file");
         
         $output = fopen($outputPath, 'wb');
         if (!$output) {
             fclose($stream);
+            $this->logger->error("Failed to create output file: " . $outputPath);
             throw new Exception('No se pudo crear archivo de salida: ' . $outputPath);
         }
+        
+        $this->logger->info("Output file opened, starting streaming copy");
         
         try {
             $chunkSize = 8192; // 8KB chunks
             $totalWritten = 0;
+            $chunkCount = 0;
             
             while (!feof($stream)) {
                 $chunk = fread($stream, $chunkSize);
                 if ($chunk === false) {
+                    $this->logger->error("Error reading chunk from stream", [
+                        'chunk_count' => $chunkCount,
+                        'total_written' => $totalWritten
+                    ]);
                     throw new Exception('Error leyendo stream del archivo: ' . $filename);
                 }
                 
                 $written = fwrite($output, $chunk);
                 if ($written === false) {
+                    $this->logger->error("Error writing chunk to file", [
+                        'chunk_count' => $chunkCount,
+                        'total_written' => $totalWritten
+                    ]);
                     throw new Exception('Error escribiendo archivo: ' . $outputPath);
                 }
                 
                 $totalWritten += $written;
+                $chunkCount++;
                 
                 // Prevenir timeout y limpiar memoria periódicamente
                 if ($totalWritten % (1024 * 1024) === 0) { // Cada MB
+                    $this->logger->debug("Progress update", [
+                        'total_written' => $this->formatBytes($totalWritten),
+                        'chunks_processed' => $chunkCount
+                    ]);
                     $this->preventTimeout();
                     $this->clearMemory();
                 }
             }
             
-            $this->logger->debug("Extracted file using streaming", [
+            $this->logger->info("Extracted file using streaming", [
                 'filename' => $filename,
                 'output_path' => basename($outputPath),
-                'size' => $this->formatBytes($totalWritten)
+                'size' => $this->formatBytes($totalWritten),
+                'total_chunks' => $chunkCount
             ]);
             
         } finally {
             fclose($stream);
             fclose($output);
+            $this->logger->info("Streams closed for file: " . $filename);
         }
     }
 
@@ -3715,23 +3756,57 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         if (!$this->copyFileWithChunks($zipPath, $newZipPath)) {
             throw new Exception('Error al copiar el archivo de backup');
         }
-        
-        // Crear metadata básica
-        $this->saveDirectCopyMetadata($newBackupName, $newZipFilename, $originalFilename);
-        
-        // Eliminar archivo original del servidor si la copia fue exitosa
-        $this->deleteServerUploadFileAfterImport($zipPath, $originalFilename);
-        
-        $this->logger->info("Direct copy import completed successfully", [
-            'new_backup_name' => $newBackupName,
-            'original_filename' => $originalFilename
-        ]);
-        
-        $this->ajaxSuccess('Backup importado correctamente usando método directo: ' . $newBackupName, [
-            'backup_name' => $newBackupName,
-            'imported_from' => $originalFilename,
-            'method' => 'direct_copy'
-        ]);
+
+        try {
+            // Ahora que el archivo está en la carpeta de backups, lo procesamos
+            $this->logger->info("Starting ZIP processing after copy", [
+                'new_zip_path' => basename($newZipPath),
+                'file_size' => $this->formatBytes(filesize($newZipPath))
+            ]);
+            
+            $zip = new ZipArchive();
+            $result = $zip->open($newZipPath);
+
+            if ($result !== TRUE) {
+                throw new Exception('No se pudo abrir el archivo ZIP copiado: ' . $this->getZipError($result));
+            }
+            
+            $this->logger->info("ZIP opened successfully, validating structure");
+            
+            if (!$this->validateBackupStructure($zip)) {
+                throw new Exception('El archivo ZIP no tiene la estructura correcta de backup');
+            }
+
+            $this->logger->info("Structure validated, extracting backup info");
+            
+            $backupInfo = $this->extractBackupInfo($zip);
+            
+            $this->logger->info("Backup info extracted, determining extraction method");
+            
+            // Para importaciones desde servidor, siempre usar extracción estándar
+            // ya que el archivo está en el disco del servidor y no hay limitaciones de upload
+            $fileSize = filesize($newZipPath);
+            $this->logger->info("Using standard extraction for server import", [
+                'file_size' => $this->formatBytes($fileSize),
+                'reason' => 'Server imports use disk-based extraction, no memory constraints'
+            ]);
+            $this->extractBackupStandard($zip, $newBackupName, $originalFilename, $backupInfo, $zipPath);
+            
+            // El éxito/error se maneja dentro de los métodos de extracción
+            // No es necesario llamar a ajaxSuccess aquí, ya que se llama en el método de extracción
+
+        } catch (Exception $e) {
+            // Si algo falla, limpiar el archivo copiado
+            if (file_exists($newZipPath)) {
+                @unlink($newZipPath);
+            }
+            throw $e; // Re-lanzar la excepción
+        } finally {
+            if (isset($zip) && $zip->filename) {
+                $zip->close();
+            }
+            // El archivo original se elimina en los métodos de extracción si todo va bien
+        }
     }
 
     /**
