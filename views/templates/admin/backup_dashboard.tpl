@@ -508,7 +508,12 @@ $(document).ready(function() {
 
     // Manejar botón de subir backup
     $('#uploadBackupBtn').on('click', function() {
-        $('#uploadBackupModal').modal('show');
+        var $modal = $('#uploadBackupModal');
+        if (typeof $modal.modal === 'function') {
+            $modal.modal('show');
+        } else {
+            showModalManually($modal);
+        }
     });
 
     // Manejar botones de restaurar completo
@@ -522,14 +527,24 @@ $(document).ready(function() {
         };
         
         $('#restore-backup-name').text(backupName);
-        $('#restoreConfirmModal').modal('show');
+        var $modal = $('#restoreConfirmModal');
+        if (typeof $modal.modal === 'function') {
+            $modal.modal('show');
+        } else {
+            showModalManually($modal);
+        }
     });
 
     // Confirmar restauración completa
     $('#confirmRestoreBtn').on('click', function() {
         if (!selectedBackupForRestore) return;
         
-        $('#restoreConfirmModal').modal('hide');
+        var $modal = $('#restoreConfirmModal');
+        if (typeof $modal.modal === 'function') {
+            $modal.modal('hide');
+        } else {
+            hideModalManually($modal);
+        }
         
         var $btn = $('.restore-complete-btn[data-backup-name="' + selectedBackupForRestore.name + '"]');
         $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Restaurando...');
@@ -969,7 +984,12 @@ $(document).ready(function() {
             },
             success: function(response) {
                 if (response && response.success) {
-                    $('#uploadBackupModal').modal('hide');
+                    var $modal = $('#uploadBackupModal');
+                    if (typeof $modal.modal === 'function') {
+                        $modal.modal('hide');
+                    } else {
+                        hideModalManually($modal);
+                    }
                     
                     // Limpiar mensaje informativo
                     $('#large-file-info').remove();
@@ -1031,13 +1051,91 @@ $(document).ready(function() {
         });
     });
 
-    // Limpiar formulario al cerrar modal
-    $('#uploadBackupModal').on('hidden.bs.modal', function() {
-        $('#uploadBackupForm')[0].reset();
-        $('#upload-progress').hide();
-        $('#upload-progress .progress-bar').css('width', '0%');
-        $('#confirmUploadBtn').prop('disabled', false).html('<i class="icon-upload"></i> Subir Backup');
+    // Función para mostrar modal manualmente
+    function showModalManually($modal) {
+        // Asegurar que el modal existe
+        if (!$modal.length) return;
+        
+        $modal.css({
+            'display': 'block',
+            'opacity': '1'
+        }).addClass('show in');
+        
+        $('body').addClass('modal-open');
+        
+        // Crear backdrop si no existe
+        if ($('.modal-backdrop').length === 0) {
+            var $backdrop = $('<div class="modal-backdrop fade in"></div>');
+            $backdrop.appendTo('body');
+            
+            // Cerrar modal al hacer clic en backdrop
+            $backdrop.on('click', function() {
+                hideModalManually($modal);
+            });
+        }
+    }
+    
+    // Función para ocultar modal manualmente
+    function hideModalManually($modal) {
+        // Asegurar que el modal existe
+        if (!$modal.length) return;
+        
+        $modal.css('display', 'none').removeClass('show in');
+        $('body').removeClass('modal-open');
+        $('.modal-backdrop').remove();
+    }
+    
+    // Manejar cierre de modales con data-dismiss
+    $(document).on('click', '[data-dismiss="modal"]', function() {
+        var $modal = $(this).closest('.modal');
+        if (typeof $modal.modal === 'function') {
+            $modal.modal('hide');
+        } else {
+            hideModalManually($modal);
+        }
     });
+    
+    // Manejar tecla ESC para cerrar modales
+    $(document).on('keydown', function(e) {
+        if (e.keyCode === 27) { // ESC
+            var $visibleModal = $('.modal:visible');
+            if ($visibleModal.length) {
+                if (typeof $visibleModal.modal === 'function') {
+                    $visibleModal.modal('hide');
+                } else {
+                    hideModalManually($visibleModal);
+                }
+            }
+        }
+    });
+    
+    // Limpiar formulario al cerrar modal (compatible)
+    function setupModalCleanup() {
+        var $uploadModal = $('#uploadBackupModal');
+        
+        // Función de limpieza
+        function cleanupUploadModal() {
+            $('#uploadBackupForm')[0].reset();
+            $('#upload-progress').hide();
+            $('#upload-progress .progress-bar').css('width', '0%');
+            $('#confirmUploadBtn').prop('disabled', false).html('<i class="icon-upload"></i> Subir Backup');
+        }
+        
+        // Intentar usar eventos Bootstrap si están disponibles
+        if (typeof $uploadModal.modal === 'function') {
+            $uploadModal.on('hidden.bs.modal', cleanupUploadModal);
+        }
+        
+        // Fallback: detectar cuando el modal se oculta manualmente
+        $uploadModal.on('DOMAttrModified', function() {
+            if ($(this).css('display') === 'none') {
+                cleanupUploadModal();
+            }
+        });
+    }
+    
+    // Inicializar limpieza de modal
+    setupModalCleanup();
 
 
 
@@ -1046,7 +1144,16 @@ $(document).ready(function() {
     
     // Manejar botón de uploads del servidor
     $('#serverUploadsBtn').on('click', function() {
-        $('#serverUploadsModal').modal('show');
+        // Método compatible con diferentes versiones de Bootstrap
+        var $modal = $('#serverUploadsModal');
+        
+        // Verificar si modal está disponible
+        if (typeof $modal.modal === 'function') {
+            $modal.modal('show');
+        } else {
+            // Fallback manual para mostrar modal
+            showModalManually($modal);
+        }
     });
 
     // Manejar escaneo de uploads del servidor
@@ -1333,7 +1440,12 @@ $(document).ready(function() {
             },
             success: function(response) {
                 if (response && response.success) {
-                    $('#serverUploadsModal').modal('hide');
+                    var $modal = $('#serverUploadsModal');
+                    if (typeof $modal.modal === 'function') {
+                        $modal.modal('hide');
+                    } else {
+                        hideModalManually($modal);
+                    }
                     
                     // Mostrar mensaje de éxito
                     var alertHtml = '<div class="alert alert-success alert-dismissible" role="alert">';
