@@ -414,13 +414,17 @@ $(document).ready(function() {
         html += '</tr></thead><tbody>';
 
         backups.forEach(function(backup) {
-            var rowClass = backup.type === 'complete' ? 'backup-complete' : 'backup-individual';
+            var rowClass = backup.type === 'complete' ? 'backup-complete' : 
+                          (backup.type === 'server_import' ? 'backup-server-import' : 'backup-individual');
             var typeIcon = backup.type === 'complete' ? 'icon-archive' : 
-                          (backup.type === 'database' ? 'icon-database' : 'icon-folder-open');
+                          (backup.type === 'server_import' ? 'icon-cloud-download' :
+                          (backup.type === 'database' ? 'icon-database' : 'icon-folder-open'));
             var typeLabel = backup.type === 'complete' ? 'Backup Completo' : 
-                           (backup.type === 'database' ? 'Base de Datos' : 'Archivos');
+                           (backup.type === 'server_import' ? 'Importado de Servidor' :
+                           (backup.type === 'database' ? 'Base de Datos' : 'Archivos'));
             var typeClass = backup.type === 'complete' ? 'label backup-type-complete' : 
-                           (backup.type === 'database' ? 'label label-info' : 'label label-success');
+                           (backup.type === 'server_import' ? 'label label-warning' :
+                           (backup.type === 'database' ? 'label label-info' : 'label label-success'));
             
             html += '<tr class="' + rowClass + '">';
             html += '<td><i class="' + typeIcon + '"></i> ' + backup.name + '</td>';
@@ -459,6 +463,23 @@ $(document).ready(function() {
                 html += 'data-backup-name="' + backup.name + '">';
                 html += '<i class="icon-trash"></i> Eliminar';
                 html += '</button>';
+                html += '</div>';
+            } else if (backup.type === 'server_import') {
+                // Backup importado desde servidor (copia directa)
+                html += '<div class="text-muted" style="font-size: 0.9em; margin-bottom: 8px;">';
+                html += '<strong>Origen:</strong> ' + (backup.imported_from || 'Desconocido') + '<br>';
+                html += '<strong>Método:</strong> Copia directa';
+                html += '</div>';
+                
+                // Solo mostrar botón de eliminar (no se puede restaurar parcialmente)
+                html += '<button class="btn btn-xs btn-danger delete-backup-btn" ';
+                html += 'data-backup-name="' + backup.name + '">';
+                html += '<i class="icon-trash"></i> Eliminar';
+                html += '</button>';
+                
+                html += '<div class="alert alert-info" style="margin-top: 8px; padding: 5px; font-size: 0.85em;">';
+                html += '<i class="icon-info-circle"></i> Este backup fue importado desde servidor. ';
+                html += 'Para usar este archivo, descárgalo y usa la funcionalidad de importación normal.';
                 html += '</div>';
             } else {
                 // Individual restore buttons (legacy support - no debería aparecer con los nuevos cambios)
@@ -1072,45 +1093,62 @@ $(document).ready(function() {
             success: function(response) {
                 var elapsed = (Date.now() - startTime) / 1000;
                 console.log('Scan completed in', elapsed + 's');
+                console.log('Full server response:', response);
                 
                 if (response && response.success) {
-                    $('#uploads-path-display').text(response.data.uploads_path);
+                    // Actualizar ruta de uploads
+                    if (response.data && response.data.uploads_path) {
+                        $('#uploads-path-display').text(response.data.uploads_path);
+                    }
                     
                     // Mostrar información adicional si está disponible
-                    if (response.data.scan_duration) {
+                    if (response.data && response.data.scan_duration) {
                         console.log('Server scan duration:', response.data.scan_duration + 's');
                     }
                     
-                    displayServerUploads(response.data.zip_files);
+                    // Mostrar archivos encontrados
+                    var zipFiles = response.data && response.data.zip_files ? response.data.zip_files : [];
+                    console.log('ZIP files found:', zipFiles.length);
+                    
+                    displayServerUploads(zipFiles);
                     
                     // Mostrar mensaje informativo si no hay archivos
-                    if (response.data.count === 0) {
+                    if (zipFiles.length === 0) {
                         var infoHtml = '<div class="alert alert-info">';
                         infoHtml += '<i class="icon-info-circle"></i> ';
                         infoHtml += '<strong>No se encontraron archivos ZIP.</strong><br>';
-                        infoHtml += response.data.message || 'Sube archivos ZIP mediante FTP/SFTP al directorio mostrado arriba.';
+                        infoHtml += 'Sube archivos ZIP mediante FTP/SFTP al directorio mostrado arriba.';
                         infoHtml += '</div>';
                         $('#server-uploads-list').append(infoHtml);
                     }
                     
                 } else {
-                    var errorMsg = response.error || 'Error desconocido durante el escaneo';
+                    console.error('Server returned error:', response);
+                    var errorMsg = response && response.error ? response.error : 'Error desconocido durante el escaneo';
                     $('#server-uploads-list').html('<div class="alert alert-warning"><i class="icon-warning-sign"></i> <strong>Error:</strong> ' + errorMsg + '</div>');
                 }
             },
             error: function(xhr, status, error) {
                 var elapsed = (Date.now() - startTime) / 1000;
-                console.log('Scan failed after', elapsed + 's', 'Status:', status);
+                console.log('Scan failed after', elapsed + 's');
+                console.log('AJAX Error details:', {
+                    status: status,
+                    error: error,
+                    responseText: xhr.responseText,
+                    readyState: xhr.readyState,
+                    statusText: xhr.statusText
+                });
                 
                 var errorMessage = 'Error de comunicación con el servidor';
                 
                 // Manejar cancelación por parte del usuario
                 if (status === 'abort') {
-                    // Ya manejado por el botón cancelar, no hacer nada más
+                    console.log('Scan was aborted by user');
                     return;
                 }
                 
                 if (status === 'timeout') {
+                    console.log('Scan timed out after', elapsed + 's');
                     // Si fue timeout en el primer intento, ofrecer reintentar con más tiempo
                     if (elapsed < 35) { // Fue el timeout inicial
                         errorMessage = 'El escaneo tardó más de lo esperado. Esto puede ocurrir con archivos muy grandes o corruptos.';
@@ -1173,15 +1211,31 @@ $(document).ready(function() {
                         errorMessage = 'Timeout extendido alcanzado. El servidor puede estar sobrecargado o hay archivos problemáticos.';
                     }
                 } else if (xhr.responseText) {
+                    console.log('Server response text:', xhr.responseText);
                     try {
                         var response = JSON.parse(xhr.responseText);
+                        console.log('Parsed server response:', response);
                         errorMessage = response.error || errorMessage;
                     } catch (e) {
+                        console.log('Failed to parse server response as JSON:', e);
                         errorMessage += ': ' + xhr.responseText.substring(0, 200);
                     }
+                } else {
+                    console.log('No response text from server');
                 }
                 
-                $('#server-uploads-list').html('<div class="alert alert-danger"><i class="icon-exclamation-triangle"></i> <strong>Error:</strong> ' + errorMessage + '</div>');
+                // Mostrar información de debug detallada
+                var debugInfo = '<div class="alert alert-danger">';
+                debugInfo += '<i class="icon-exclamation-triangle"></i> <strong>Error:</strong> ' + errorMessage;
+                debugInfo += '<br><br><small><strong>Información de debug:</strong><br>';
+                debugInfo += 'Estado: ' + status + '<br>';
+                debugInfo += 'Error: ' + error + '<br>';
+                debugInfo += 'Tiempo transcurrido: ' + elapsed.toFixed(2) + 's<br>';
+                debugInfo += 'ReadyState: ' + xhr.readyState + '<br>';
+                debugInfo += 'Status Code: ' + xhr.status + '</small>';
+                debugInfo += '</div>';
+                
+                $('#server-uploads-list').html(debugInfo);
             },
             complete: function() {
                 $btn.prop('disabled', false).html('<i class="icon-search"></i> Escanear Archivos');
@@ -1222,7 +1276,8 @@ $(document).ready(function() {
             if (upload.is_valid_backup) {
                 html += '<div class="btn-group">';
                 html += '<button class="btn btn-sm btn-success import-server-upload-btn" ';
-                html += 'data-filename="' + upload.filename + '">';
+                html += 'data-filename="' + upload.filename + '" ';
+                html += 'data-filesize="' + upload.size_bytes + '">';
                 html += '<i class="icon-download"></i> Importar';
                 html += '</button>';
                 html += '<button class="btn btn-sm btn-danger delete-server-upload-btn" ';
@@ -1249,8 +1304,15 @@ $(document).ready(function() {
     $(document).on('click', '.import-server-upload-btn', function() {
         var $btn = $(this);
         var filename = $btn.data('filename');
+        var filesize = $btn.data('filesize') || 0;
         
-        if (!confirm('¿Importar el archivo "' + filename + '" como backup?\n\nEsto añadirá el backup a tu lista de backups disponibles.')) {
+        // Determinar si es un archivo grande para mostrar mensaje apropiado
+        var isLargeFile = filesize > 100 * 1024 * 1024; // 100MB
+        var sizeMsg = isLargeFile ? 
+            '\n\n⚠️ Archivo grande detectado - Puede tardar 10-30 minutos.' : 
+            '\n\nEsto añadirá el backup a tu lista de backups disponibles.';
+        
+        if (!confirm('¿Importar el archivo "' + filename + '" como backup?' + sizeMsg)) {
             return;
         }
         
