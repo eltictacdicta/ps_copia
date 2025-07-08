@@ -1609,6 +1609,89 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
     }
 
     /**
+     * Generate download URL for exported backup
+     */
+    private function getDownloadUrl(string $filePath): string
+    {
+        $filename = basename($filePath);
+        $token = $this->context->controller ? Tools::getAdminTokenLite('AdminPsCopiaAjax') : '';
+        
+        return $this->context->link->getAdminLink('AdminPsCopiaAjax', true, [], [
+            'ajax' => true,
+            'action' => 'download_export',
+            'file' => $filename,
+            'token' => $token
+        ]);
+    }
+
+    /**
+     * Handle backup export download
+     */
+    private function handleDownloadExport(): void
+    {
+        $filename = Tools::getValue('file');
+        
+        if (empty($filename)) {
+            $this->ajaxError('Nombre de archivo requerido');
+            return;
+        }
+
+        // Validar nombre de archivo por seguridad
+        if (!preg_match('/^[a-zA-Z0-9_-]+_export\.zip$/', $filename)) {
+            $this->ajaxError('Nombre de archivo no válido');
+            return;
+        }
+
+        $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
+        $filePath = $backupDir . DIRECTORY_SEPARATOR . $filename;
+
+        if (!file_exists($filePath)) {
+            $this->ajaxError('Archivo no encontrado');
+            return;
+        }
+
+        try {
+            // Establecer headers para descarga
+            $fileSize = filesize($filePath);
+            
+            header('Content-Type: application/zip');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
+            header('Content-Length: ' . $fileSize);
+            header('Cache-Control: must-revalidate');
+            header('Pragma: public');
+            
+            // Descargar archivo
+            if ($fileSize > 50 * 1024 * 1024) { // 50MB
+                // Para archivos grandes, usar readfile con buffer
+                if ($file = fopen($filePath, 'rb')) {
+                    while (!feof($file) && connection_status() == 0) {
+                        echo fread($file, 8192);
+                        flush();
+                    }
+                    fclose($file);
+                }
+            } else {
+                // Para archivos pequeños, usar readfile directo
+                readfile($filePath);
+            }
+            
+            // Limpiar archivo temporal después de la descarga
+            @unlink($filePath);
+            
+            $this->logger->info("Backup export downloaded successfully", [
+                'filename' => $filename,
+                'size' => $fileSize
+            ]);
+            
+            exit;
+            
+        } catch (Exception $e) {
+            $this->logger->error("Download export failed: " . $e->getMessage());
+            $this->ajaxError($e->getMessage());
+        }
+    }
+
+    /**
      * Handle backup import with migration support
      */
     private function handleImportBackupWithMigration(): void
