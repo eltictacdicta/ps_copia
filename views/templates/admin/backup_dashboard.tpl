@@ -282,6 +282,19 @@
 .modal-body ul {
     margin-top: 15px;
 }
+
+/* Estilos para compatibilidad de modales */
+.modal.show {
+    display: block !important;
+}
+
+.modal-backdrop.show {
+    opacity: 0.5;
+}
+
+.modal-open {
+    overflow: hidden;
+}
 </style>
 
 <script>
@@ -291,6 +304,39 @@ var ajaxUrl = {/literal}"{$link->getAdminLink('AdminPsCopiaAjax')|escape:'html':
 var selectedBackupForRestore = null;
 
 $(document).ready(function() {
+
+    // Función helper para manejar modales de forma compatible
+    function showModal(modalSelector) {
+        var modal = $(modalSelector);
+        if (typeof modal.modal === 'function') {
+            modal.modal('show');
+        } else if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+            // Bootstrap 5
+            var modalInstance = new bootstrap.Modal(modal[0]);
+            modalInstance.show();
+        } else {
+            // Fallback: mostrar manualmente
+            modal.addClass('show').css('display', 'block');
+            $('body').addClass('modal-open');
+            
+            // Agregar backdrop si no existe
+            if ($('.modal-backdrop').length === 0) {
+                $('body').append('<div class="modal-backdrop fade show"></div>');
+            }
+        }
+    }
+
+    function hideModal(modalSelector) {
+        var modal = $(modalSelector);
+        if (typeof modal.modal === 'function') {
+            modal.modal('hide');
+        } else {
+            // Fallback: ocultar manualmente
+            modal.removeClass('show').css('display', 'none');
+            $('body').removeClass('modal-open');
+            $('.modal-backdrop').remove();
+        }
+    }
 
     // Crear backup completo
     $('#createBackupBtn').on('click', function() {
@@ -509,7 +555,7 @@ $(document).ready(function() {
 
     // Manejar botón de subir backup
     $('#uploadBackupBtn').on('click', function() {
-        $('#uploadBackupModal').modal('show');
+        showModal('#uploadBackupModal');
     });
 
     // Manejar botones de restaurar completo
@@ -523,14 +569,14 @@ $(document).ready(function() {
         };
         
         $('#restore-backup-name').text(backupName);
-        $('#restoreConfirmModal').modal('show');
+        showModal('#restoreConfirmModal');
     });
 
     // Confirmar restauración completa
     $('#confirmRestoreBtn').on('click', function() {
         if (!selectedBackupForRestore) return;
         
-        $('#restoreConfirmModal').modal('hide');
+        hideModal('#restoreConfirmModal');
         
         var $btn = $('.restore-complete-btn[data-backup-name="' + selectedBackupForRestore.name + '"]');
         $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Restaurando...');
@@ -970,7 +1016,7 @@ $(document).ready(function() {
             },
             success: function(response) {
                 if (response && response.success) {
-                    $('#uploadBackupModal').modal('hide');
+                    hideModal('#uploadBackupModal');
                     
                     // Limpiar mensaje informativo
                     $('#large-file-info').remove();
@@ -1032,12 +1078,22 @@ $(document).ready(function() {
         });
     });
 
-    // Limpiar formulario al cerrar modal
-    $('#uploadBackupModal').on('hidden.bs.modal', function() {
+    // Limpiar formulario al cerrar modal - múltiples eventos para compatibilidad
+    $('#uploadBackupModal').on('hidden.bs.modal hidden', function() {
         $('#uploadBackupForm')[0].reset();
         $('#upload-progress').hide();
         $('#upload-progress .progress-bar').css('width', '0%');
         $('#confirmUploadBtn').prop('disabled', false).html('<i class="icon-upload"></i> Subir Backup');
+    });
+
+    // Manejar cierre del modal de upload por botones
+    $(document).on('click', '#uploadBackupModal .close, #uploadBackupModal [data-dismiss="modal"]', function() {
+        hideModal('#uploadBackupModal');
+    });
+
+    // Manejar cierre del modal de confirmación de restauración
+    $(document).on('click', '#restoreConfirmModal .close, #restoreConfirmModal [data-dismiss="modal"]', function() {
+        hideModal('#restoreConfirmModal');
     });
 
 
@@ -1047,7 +1103,20 @@ $(document).ready(function() {
     
     // Manejar botón de uploads del servidor
     $('#serverUploadsBtn').on('click', function() {
-        $('#serverUploadsModal').modal('show');
+        showModal('#serverUploadsModal');
+    });
+
+    // Manejar cierre del modal de uploads del servidor
+    $(document).on('click', '#serverUploadsModal .close, #serverUploadsModal [data-dismiss="modal"]', function() {
+        hideModal('#serverUploadsModal');
+    });
+
+    // Cerrar modal al hacer clic en el backdrop
+    $(document).on('click', '.modal-backdrop', function() {
+        var openModals = $('.modal.show');
+        if (openModals.length > 0) {
+            hideModal('#' + openModals.first().attr('id'));
+        }
     });
 
     // Manejar escaneo de uploads del servidor
@@ -1334,7 +1403,7 @@ $(document).ready(function() {
             },
             success: function(response) {
                 if (response && response.success) {
-                    $('#serverUploadsModal').modal('hide');
+                    hideModal('#serverUploadsModal');
                     
                     // Mostrar mensaje de éxito
                     var alertHtml = '<div class="alert alert-success alert-dismissible" role="alert">';
