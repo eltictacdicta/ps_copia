@@ -903,9 +903,10 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
 
         $this->logger->info("Starting complete restoration with automatic migration: database + files");
 
-        // Configuración automática de migración (igual que en MIGRAR DESDE OTRO PRESTASHOP)
+        // Configuración automática de migración para restauración COMPLETA
+        // En restauración completa: restauramos TODO del backup pero mantenemos las URLs actuales
         $migrationConfig = [
-            // URLs siempre habilitadas con autodetección (valor predeterminado inteligente)
+            // URLs siempre habilitadas con autodetección para mantener las URLs del sitio actual
             'migrate_urls' => true,
             'old_url' => '',
             'new_url' => '',
@@ -913,15 +914,18 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             'migrate_admin_dir' => false,
             'old_admin_dir' => '',
             'new_admin_dir' => '',
-            // Preserve DB config siempre obligatorio
-            'preserve_db_config' => true,
+            // preserve_db_config = FALSE para restauración completa
+            // Queremos restaurar TODO el backup (productos, configuraciones, tema, etc.)
+            // pero solo actualizar las URLs para que funcione en el sitio actual
+            'preserve_db_config' => false,
             'configurations' => []
         ];
 
-        $this->logger->info("Applying automatic migration configuration for complete restore", [
+        $this->logger->info("Applying automatic migration configuration for COMPLETE RESTORE", [
             'migrate_urls' => $migrationConfig['migrate_urls'],
             'migrate_admin_dir' => $migrationConfig['migrate_admin_dir'],
-            'preserve_db_config' => $migrationConfig['preserve_db_config']
+            'preserve_db_config' => $migrationConfig['preserve_db_config'],
+            'note' => 'preserve_db_config=false means we restore ALL database from backup except URLs'
         ]);
 
         // Get full paths to backup files
@@ -1156,58 +1160,45 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                             'files_file' => $backupData['files_file']
                         ];
                     }
-                }
-                
-                // Verificar si es un backup importado desde servidor (condición independiente)
-                if (isset($backupData['type']) && $backupData['type'] === 'server_import') {
-                    // Backup importado desde servidor que YA está completamente restaurado
-                    // Mostrar como backup completo porque ya se aplicó a la tienda
-                    $completeBackups[] = [
-                        'name' => $backupName,
-                        'date' => $backupData['created_at'],
-                        'size' => 0, // No aplica, ya está restaurado
-                        'size_formatted' => 'Restaurado',
-                        'type' => 'server_import_restored',
-                        'imported_from' => $backupData['imported_from'] ?? 'Unknown',
-                        'migration_applied' => $backupData['migration_applied'] ?? false,
-                        'restoration_note' => 'Este backup ya fue restaurado en la tienda actual'
-                    ];
+                } elseif (isset($backupData['zip_file']) && $backupData['type'] === 'server_import') {
+                    // Backup importado desde servidor (copia directa)
+                    $zipFile = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH) . '/' . $backupData['zip_file'];
+                    
+                    if (file_exists($zipFile)) {
+                        $fileSize = filesize($zipFile);
+                        
+                        $completeBackups[] = [
+                            'name' => $backupName,
+                            'date' => $backupData['created_at'],
+                            'size' => $fileSize,
+                            'size_formatted' => $this->formatBytes($fileSize),
+                            'type' => 'server_import',
+                            'zip_file' => $backupData['zip_file'],
+                            'imported_from' => $backupData['imported_from'] ?? 'Unknown',
+                            'import_method' => $backupData['import_method'] ?? 'direct_copy'
+                        ];
+                    }
                 }
             }
         } else {
             // Formato original: objeto con claves como nombres de backup
             foreach ($metadata as $backupName => $backupInfo) {
-                // Verificar si es un backup importado desde servidor que ya fue restaurado
-                if (isset($backupInfo['type']) && $backupInfo['type'] === 'server_import') {
-                    // Backup importado desde servidor que YA está completamente restaurado
+                // Check if both files still exist
+                $dbFile = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH) . '/' . $backupInfo['database_file'];
+                $filesFile = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH) . '/' . $backupInfo['files_file'];
+                
+                if (file_exists($dbFile) && file_exists($filesFile)) {
+                    $totalSize = filesize($dbFile) + filesize($filesFile);
+                    
                     $completeBackups[] = [
                         'name' => $backupName,
                         'date' => $backupInfo['created_at'],
-                        'size' => 0, // No aplica, ya está restaurado
-                        'size_formatted' => 'Restaurado',
-                        'type' => 'server_import_restored',
-                        'imported_from' => $backupInfo['imported_from'] ?? 'Unknown',
-                        'migration_applied' => $backupInfo['migration_applied'] ?? false,
-                        'restoration_note' => 'Este backup ya fue restaurado en la tienda actual'
+                        'size' => $totalSize,
+                        'size_formatted' => $this->formatBytes($totalSize),
+                        'type' => 'complete',
+                        'database_file' => $backupInfo['database_file'],
+                        'files_file' => $backupInfo['files_file']
                     ];
-                } else {
-                    // Backup completo tradicional - verificar que los archivos existan
-                    $dbFile = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH) . '/' . $backupInfo['database_file'];
-                    $filesFile = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH) . '/' . $backupInfo['files_file'];
-                    
-                    if (file_exists($dbFile) && file_exists($filesFile)) {
-                        $totalSize = filesize($dbFile) + filesize($filesFile);
-                        
-                        $completeBackups[] = [
-                            'name' => $backupName,
-                            'date' => $backupInfo['created_at'],
-                            'size' => $totalSize,
-                            'size_formatted' => $this->formatBytes($totalSize),
-                            'type' => 'complete',
-                            'database_file' => $backupInfo['database_file'],
-                            'files_file' => $backupInfo['files_file']
-                        ];
-                    }
                 }
             }
         }
@@ -3360,7 +3351,7 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
     }
 
     /**
-     * Process standard server upload for smaller files - WITH MIGRATION
+     * Process standard server upload for smaller files
      *
      * @param string $zipPath
      * @param string $originalFilename
@@ -3368,18 +3359,36 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
      */
     private function processStandardServerUpload(string $zipPath, string $originalFilename): void
     {
-        $this->logger->info("Processing standard server upload with complete migration");
+        $zip = new ZipArchive();
+        $result = $zip->open($zipPath);
         
-        // Usar el mismo método que importByDirectCopy para consistencia
-        // Todos los server imports deben tener migración completa
-        $timestamp = date('Y-m-d_H-i-s');
-        $newBackupName = 'server_import_' . $timestamp;
+        if ($result !== TRUE) {
+            throw new Exception('No se pudo abrir el archivo ZIP: ' . $this->getZipError($result));
+        }
         
-        $this->importByDirectCopy($zipPath, $originalFilename, $newBackupName);
+        try {
+            // Verificar estructura del backup
+            if (!$this->validateBackupStructure($zip)) {
+                throw new Exception('El archivo ZIP no tiene la estructura correcta de backup');
+            }
+            
+            // Leer metadata
+            $backupInfo = $this->extractBackupInfo($zip);
+            
+            // Generar nuevo nombre único
+            $timestamp = date('Y-m-d_H-i-s');
+            $newBackupName = 'server_backup_' . $timestamp;
+            
+            // Extraer archivos usando método estándar
+            $this->extractBackupStandard($zip, $newBackupName, $originalFilename, $backupInfo, $zipPath);
+            
+        } finally {
+            $zip->close();
+        }
     }
 
     /**
-     * Process large server upload using streaming - WITH MIGRATION
+     * Process large server upload using streaming
      *
      * @param string $zipPath
      * @param string $originalFilename
@@ -3387,14 +3396,32 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
      */
     private function processLargeServerUpload(string $zipPath, string $originalFilename): void
     {
-        $this->logger->info("Processing large server upload with complete migration");
+        $zip = new ZipArchive();
+        $result = $zip->open($zipPath);
         
-        // Usar el mismo método que importByDirectCopy para consistencia
-        // Todos los server imports deben tener migración completa, sin importar el tamaño
-        $timestamp = date('Y-m-d_H-i-s');
-        $newBackupName = 'server_import_' . $timestamp;
+        if ($result !== TRUE) {
+            throw new Exception('No se pudo abrir el archivo ZIP: ' . $this->getZipError($result));
+        }
         
-        $this->importByDirectCopy($zipPath, $originalFilename, $newBackupName);
+        try {
+            // Verificar estructura del backup
+            if (!$this->validateBackupStructure($zip)) {
+                throw new Exception('El archivo ZIP no tiene la estructura correcta de backup');
+            }
+            
+            // Leer metadata
+            $backupInfo = $this->extractBackupInfo($zip);
+            
+            // Generar nuevo nombre único
+            $timestamp = date('Y-m-d_H-i-s');
+            $newBackupName = 'server_backup_' . $timestamp;
+            
+            // Extraer usando streaming para archivos grandes
+            $this->extractBackupStreaming($zip, $newBackupName, $originalFilename, $backupInfo, $zipPath);
+            
+        } finally {
+            $zip->close();
+        }
     }
 
     /**
@@ -3758,138 +3785,31 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
             
             $backupInfo = $this->extractBackupInfo($zip);
             
-            $this->logger->info("Backup info extracted, starting proper restoration with migration");
+            $this->logger->info("Backup info extracted, determining extraction method");
             
-            // CORREGIDO: Para server imports, procesar con migración completa igual que restore_backup
-            // No usar directCopyMetadata, sino procesar correctamente la base de datos y archivos
-            
-            // Extraer archivos con procesamiento completo
-            $extractPath = $backupDir . DIRECTORY_SEPARATOR . 'temp_server_extract_' . time();
-            
-            if (!$zip->extractTo($extractPath)) {
-                throw new Exception('Error al extraer los archivos del backup');
-            }
-            
-            $zip->close();
-            
-            // Configuración de migración automática (igual que en complete restore)
-            $migrationConfig = [
-                // URLs siempre habilitadas con autodetección
-                'migrate_urls' => true,
-                'old_url' => '',
-                'new_url' => '',
-                // Admin directory preservado del backup
-                'migrate_admin_dir' => false,
-                'old_admin_dir' => '',
-                'new_admin_dir' => '',
-                // Preserve DB config siempre obligatorio
-                'preserve_db_config' => true,
-                'configurations' => []
-            ];
-
-            $this->logger->info("Applying server import with automatic migration", [
-                'migrate_urls' => $migrationConfig['migrate_urls'],
-                'preserve_db_config' => $migrationConfig['preserve_db_config']
+            // Para importaciones desde servidor, siempre usar extracción estándar
+            // ya que el archivo está en el disco del servidor y no hay limitaciones de upload
+            $fileSize = filesize($newZipPath);
+            $this->logger->info("Using standard extraction for server import", [
+                'file_size' => $this->formatBytes($fileSize),
+                'reason' => 'Server imports use disk-based extraction, no memory constraints'
             ]);
-
-            // Obtener rutas de archivos extraídos
-            $dbSourcePath = $extractPath . DIRECTORY_SEPARATOR . 'database';
-            $filesSourcePath = $extractPath . DIRECTORY_SEPARATOR . 'files';
+            $this->extractBackupStandard($zip, $newBackupName, $originalFilename, $backupInfo, $zipPath);
             
-            $dbFiles = glob($dbSourcePath . DIRECTORY_SEPARATOR . '*');
-            $filesFiles = glob($filesSourcePath . DIRECTORY_SEPARATOR . '*');
-            
-            // Auto-discovery como fallback si no se encuentran archivos en ubicaciones estándar
-            if (empty($dbFiles) || empty($filesFiles)) {
-                $this->logger->warning("Standard file discovery failed, attempting automatic discovery");
-                
-                try {
-                    $discoveredFiles = $this->findBackupFilesAutomatically($extractPath);
-                    $dbFile = $discoveredFiles['database'];
-                    $filesFile = $discoveredFiles['files'];
-                } catch (Exception $e) {
-                    $this->removeDirectoryRecursively($extractPath);
-                    @unlink($newZipPath);
-                    throw new Exception('Archivos de backup incompletos: ' . $e->getMessage());
-                }
-            } else {
-                $dbFile = $dbFiles[0];
-                $filesFile = $filesFiles[0];
-            }
-
-            // Aplicar migración de base de datos (CRÍTICO)
-            $this->logger->info("Restoring database with automatic migration from server import");
-            
-            if (class_exists('PrestaShop\Module\PsCopia\Migration\DatabaseMigrator')) {
-                $dbMigrator = new \PrestaShop\Module\PsCopia\Migration\DatabaseMigrator($this->backupContainer, $this->logger);
-                $dbMigrator->migrateDatabase($dbFile, $migrationConfig);
-            } else {
-                throw new Exception('DatabaseMigrator class not found - cannot complete proper restoration');
-            }
-
-            // Restaurar archivos con migración si es necesario
-            $this->logger->info("Restoring files from server import");
-            
-            if (class_exists('PrestaShop\Module\PsCopia\Migration\FilesMigrator')) {
-                try {
-                    $filesMigrator = new \PrestaShop\Module\PsCopia\Migration\FilesMigrator($this->backupContainer, $this->logger);
-                    $filesMigrator->migrateFiles($filesFile, $migrationConfig);
-                } catch (Exception $e) {
-                    $this->logger->error("Files migration failed, falling back to simple restoration: " . $e->getMessage());
-                    $this->restoreFilesFromPath($filesFile);
-                }
-            } else {
-                $this->logger->warning("FilesMigrator class not found, falling back to standard restore");
-                $this->restoreFilesFromPath($filesFile);
-            }
-
-            // Guardar metadata del backup restaurado
-            $newBackupData = [
-                'backup_name' => $newBackupName,
-                'database_file' => basename($dbFile),
-                'files_file' => basename($filesFile),
-                'created_at' => date('Y-m-d H:i:s'),
-                'type' => 'server_import',
-                'imported_from' => $originalFilename,
-                'original_backup' => $backupInfo['backup_name'] ?? 'unknown',
-                'migration_applied' => true,
-                'migration_config' => $migrationConfig
-            ];
-            
-            $this->saveBackupMetadata($newBackupData);
-            
-            // Limpiar archivos temporales
-            $this->removeDirectoryRecursively($extractPath);
-            @unlink($newZipPath);
-            
-            // Si llegamos aquí, la importación fue exitosa
-            // Eliminar automáticamente el archivo ZIP original del servidor si se proporcionó
-            if ($zipPath !== $newZipPath) { // Solo si no es el mismo archivo
-                $this->deleteServerUploadFileAfterImport($zipPath, $originalFilename);
-            }
-            
-            $this->logger->info("Server import completed successfully with full migration", [
-                'new_backup_name' => $newBackupName,
-                'original_filename' => $originalFilename,
-                'migration_applied' => true
-            ]);
-            
-            $this->ajaxSuccess('¡Backup restaurado completamente desde servidor: ' . $originalFilename . '! Base de datos y archivos migrados correctamente.', [
-                'backup_name' => $newBackupName,
-                'imported_from' => $originalFilename,
-                'migration_applied' => true,
-                'restoration_type' => 'complete_with_migration'
-            ]);
+            // El éxito/error se maneja dentro de los métodos de extracción
+            // No es necesario llamar a ajaxSuccess aquí, ya que se llama en el método de extracción
 
         } catch (Exception $e) {
-            // Si algo falla, limpiar archivos
+            // Si algo falla, limpiar el archivo copiado
             if (file_exists($newZipPath)) {
                 @unlink($newZipPath);
             }
-            if (isset($extractPath) && is_dir($extractPath)) {
-                $this->removeDirectoryRecursively($extractPath);
-            }
             throw $e; // Re-lanzar la excepción
+        } finally {
+            if (isset($zip) && $zip->filename) {
+                $zip->close();
+            }
+            // El archivo original se elimina en los métodos de extracción si todo va bien
         }
     }
 
@@ -3983,11 +3903,11 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
     }
 
     /**
-     * Standard processing for moderate-sized files - WITH COMPLETE MIGRATION
+     * Standard processing for moderate-sized files
      */
     private function processServerUploadStandard(string $zipPath, string $filename): void
     {
-        $this->logger->info("Using standard optimized processing with complete migration");
+        $this->logger->info("Using standard optimized processing");
         
         // Verificación básica
         if (!$this->quickIntegrityCheck($zipPath)) {
@@ -3998,7 +3918,7 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         $timestamp = date('Y-m-d_H-i-s');
         $newBackupName = 'server_import_' . $timestamp;
         
-        // Usar método unificado que incluye migración completa
+        // Para archivos moderados, usar copia directa también (más eficiente que extracción)
         $this->importByDirectCopy($zipPath, $filename, $newBackupName);
     }
 

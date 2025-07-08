@@ -144,16 +144,17 @@
                 <div class="well well-sm">
                     <h5><i class="icon-magic text-success"></i> Se aplicará automáticamente:</h5>
                     <ul class="list-unstyled" style="margin: 0;">
-                        <li><i class="icon-check text-success"></i> <strong>URLs:</strong> Se detectan y cambian automáticamente</li>
+                        <li><i class="icon-check text-success"></i> <strong>URLs:</strong> Se mantienen las del sitio actual automáticamente</li>
                         <li><i class="icon-check text-success"></i> <strong>Carpeta Admin:</strong> Se detecta automáticamente del backup</li>
-                        <li><i class="icon-check text-success"></i> <strong>Base de Datos:</strong> Se mantiene la configuración actual</li>
+                        <li><i class="icon-check text-success"></i> <strong>Base de Datos:</strong> Se restaura COMPLETAMENTE del backup</li>
                     </ul>
                 </div>
                 
                 <p>¿Estás seguro de que quieres restaurar desde: <strong id="restore-backup-name"></strong>?</p>
                 <ul class="text-danger">
                     <li>Se sobrescribirán <strong>TODOS</strong> los archivos actuales</li>
-                    <li>Se sobrescribirá <strong>TODA</strong> la base de datos actual</li>
+                    <li>Se sobrescribirá <strong>TODA</strong> la base de datos actual (productos, configuraciones, tema, etc.)</li>
+                    <li>Solo se mantendrán las <strong>URLs del sitio actual</strong></li>
                     <li>Esta acción <strong>NO SE PUEDE DESHACER</strong></li>
                     <li>Se recomienda hacer un backup actual antes de proceder</li>
                 </ul>
@@ -237,16 +238,6 @@
 .backup-individual {
     background-color: #f7f7f9;
     border-left: 4px solid #9e9e9e;
-}
-
-.backup-server-import {
-    background-color: #fefaee;
-    border-left: 4px solid #f0ad4e;
-}
-
-.backup-server-import-restored {
-    background-color: #e7f4e4;
-    border-left: 4px solid #28a745;
 }
 
 .table-responsive {
@@ -425,20 +416,16 @@ $(document).ready(function() {
 
         backups.forEach(function(backup) {
             var rowClass = backup.type === 'complete' ? 'backup-complete' : 
-                          (backup.type === 'server_import' ? 'backup-server-import' : 
-                          (backup.type === 'server_import_restored' ? 'backup-server-import-restored' : 'backup-individual'));
+                          (backup.type === 'server_import' ? 'backup-server-import' : 'backup-individual');
             var typeIcon = backup.type === 'complete' ? 'icon-archive' : 
                           (backup.type === 'server_import' ? 'icon-cloud-download' :
-                          (backup.type === 'server_import_restored' ? 'icon-check-circle' :
-                          (backup.type === 'database' ? 'icon-database' : 'icon-folder-open')));
+                          (backup.type === 'database' ? 'icon-database' : 'icon-folder-open'));
             var typeLabel = backup.type === 'complete' ? 'Backup Completo' : 
                            (backup.type === 'server_import' ? 'Importado de Servidor' :
-                           (backup.type === 'server_import_restored' ? 'Restaurado Exitosamente' :
-                           (backup.type === 'database' ? 'Base de Datos' : 'Archivos')));
+                           (backup.type === 'database' ? 'Base de Datos' : 'Archivos'));
             var typeClass = backup.type === 'complete' ? 'label backup-type-complete' : 
                            (backup.type === 'server_import' ? 'label label-warning' :
-                           (backup.type === 'server_import_restored' ? 'label label-success' :
-                           (backup.type === 'database' ? 'label label-info' : 'label label-success')));
+                           (backup.type === 'database' ? 'label label-info' : 'label label-success'));
             
             html += '<tr class="' + rowClass + '">';
             html += '<td><i class="' + typeIcon + '"></i> ' + backup.name + '</td>';
@@ -495,28 +482,6 @@ $(document).ready(function() {
                 html += '<i class="icon-info-circle"></i> Este backup fue importado desde servidor. ';
                 html += 'Para usar este archivo, descárgalo y usa la funcionalidad de importación normal.';
                 html += '</div>';
-            } else if (backup.type === 'server_import_restored') {
-                // Backup importado desde servidor que ya fue restaurado
-                html += '<div class="text-muted" style="font-size: 0.9em; margin-bottom: 8px;">';
-                html += '<strong>Origen:</strong> ' + (backup.imported_from || 'Desconocido') + '<br>';
-                html += '<strong>Estado:</strong> Restaurado completamente<br>';
-                if (backup.migration_applied) {
-                    html += '<strong>Migración:</strong> <span class="text-success">Aplicada</span>';
-                } else {
-                    html += '<strong>Migración:</strong> <span class="text-warning">No aplicada</span>';
-                }
-                html += '</div>';
-                
-                // Solo mostrar botón de eliminar del histórico
-                html += '<button class="btn btn-xs btn-danger delete-backup-btn" ';
-                html += 'data-backup-name="' + backup.name + '">';
-                html += '<i class="icon-trash"></i> Eliminar del Histórico';
-                html += '</button>';
-                
-                html += '<div class="alert alert-success" style="margin-top: 8px; padding: 5px; font-size: 0.85em;">';
-                html += '<i class="icon-check"></i> Este backup fue restaurado correctamente en la tienda actual. ';
-                html += 'Los archivos y base de datos ya están aplicados.';
-                html += '</div>';
             } else {
                 // Individual restore buttons (legacy support - no debería aparecer con los nuevos cambios)
                 var buttonClass = backup.type === 'database' ? 'btn-info' : 'btn-success';
@@ -544,12 +509,7 @@ $(document).ready(function() {
 
     // Manejar botón de subir backup
     $('#uploadBackupBtn').on('click', function() {
-        var $modal = $('#uploadBackupModal');
-        if (typeof $modal.modal === 'function') {
-            $modal.modal('show');
-        } else {
-            showModalManually($modal);
-        }
+        $('#uploadBackupModal').modal('show');
     });
 
     // Manejar botones de restaurar completo
@@ -563,24 +523,14 @@ $(document).ready(function() {
         };
         
         $('#restore-backup-name').text(backupName);
-        var $modal = $('#restoreConfirmModal');
-        if (typeof $modal.modal === 'function') {
-            $modal.modal('show');
-        } else {
-            showModalManually($modal);
-        }
+        $('#restoreConfirmModal').modal('show');
     });
 
     // Confirmar restauración completa
     $('#confirmRestoreBtn').on('click', function() {
         if (!selectedBackupForRestore) return;
         
-        var $modal = $('#restoreConfirmModal');
-        if (typeof $modal.modal === 'function') {
-            $modal.modal('hide');
-        } else {
-            hideModalManually($modal);
-        }
+        $('#restoreConfirmModal').modal('hide');
         
         var $btn = $('.restore-complete-btn[data-backup-name="' + selectedBackupForRestore.name + '"]');
         $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Restaurando...');
@@ -1020,12 +970,7 @@ $(document).ready(function() {
             },
             success: function(response) {
                 if (response && response.success) {
-                    var $modal = $('#uploadBackupModal');
-                    if (typeof $modal.modal === 'function') {
-                        $modal.modal('hide');
-                    } else {
-                        hideModalManually($modal);
-                    }
+                    $('#uploadBackupModal').modal('hide');
                     
                     // Limpiar mensaje informativo
                     $('#large-file-info').remove();
@@ -1087,91 +1032,13 @@ $(document).ready(function() {
         });
     });
 
-    // Función para mostrar modal manualmente
-    function showModalManually($modal) {
-        // Asegurar que el modal existe
-        if (!$modal.length) return;
-        
-        $modal.css({
-            'display': 'block',
-            'opacity': '1'
-        }).addClass('show in');
-        
-        $('body').addClass('modal-open');
-        
-        // Crear backdrop si no existe
-        if ($('.modal-backdrop').length === 0) {
-            var $backdrop = $('<div class="modal-backdrop fade in"></div>');
-            $backdrop.appendTo('body');
-            
-            // Cerrar modal al hacer clic en backdrop
-            $backdrop.on('click', function() {
-                hideModalManually($modal);
-            });
-        }
-    }
-    
-    // Función para ocultar modal manualmente
-    function hideModalManually($modal) {
-        // Asegurar que el modal existe
-        if (!$modal.length) return;
-        
-        $modal.css('display', 'none').removeClass('show in');
-        $('body').removeClass('modal-open');
-        $('.modal-backdrop').remove();
-    }
-    
-    // Manejar cierre de modales con data-dismiss
-    $(document).on('click', '[data-dismiss="modal"]', function() {
-        var $modal = $(this).closest('.modal');
-        if (typeof $modal.modal === 'function') {
-            $modal.modal('hide');
-        } else {
-            hideModalManually($modal);
-        }
+    // Limpiar formulario al cerrar modal
+    $('#uploadBackupModal').on('hidden.bs.modal', function() {
+        $('#uploadBackupForm')[0].reset();
+        $('#upload-progress').hide();
+        $('#upload-progress .progress-bar').css('width', '0%');
+        $('#confirmUploadBtn').prop('disabled', false).html('<i class="icon-upload"></i> Subir Backup');
     });
-    
-    // Manejar tecla ESC para cerrar modales
-    $(document).on('keydown', function(e) {
-        if (e.keyCode === 27) { // ESC
-            var $visibleModal = $('.modal:visible');
-            if ($visibleModal.length) {
-                if (typeof $visibleModal.modal === 'function') {
-                    $visibleModal.modal('hide');
-                } else {
-                    hideModalManually($visibleModal);
-                }
-            }
-        }
-    });
-    
-    // Limpiar formulario al cerrar modal (compatible)
-    function setupModalCleanup() {
-        var $uploadModal = $('#uploadBackupModal');
-        
-        // Función de limpieza
-        function cleanupUploadModal() {
-            $('#uploadBackupForm')[0].reset();
-            $('#upload-progress').hide();
-            $('#upload-progress .progress-bar').css('width', '0%');
-            $('#confirmUploadBtn').prop('disabled', false).html('<i class="icon-upload"></i> Subir Backup');
-        }
-        
-        // Intentar usar eventos Bootstrap si están disponibles
-        if (typeof $uploadModal.modal === 'function') {
-            $uploadModal.on('hidden.bs.modal', cleanupUploadModal);
-        }
-        
-        // Fallback: detectar cuando el modal se oculta manualmente
-        $uploadModal.on('DOMAttrModified', function() {
-            if ($(this).css('display') === 'none') {
-                cleanupUploadModal();
-            }
-        });
-    }
-    
-    // Inicializar limpieza de modal
-    setupModalCleanup();
 
 
 
@@ -1180,16 +1047,7 @@ $(document).ready(function() {
     
     // Manejar botón de uploads del servidor
     $('#serverUploadsBtn').on('click', function() {
-        // Método compatible con diferentes versiones de Bootstrap
-        var $modal = $('#serverUploadsModal');
-        
-        // Verificar si modal está disponible
-        if (typeof $modal.modal === 'function') {
-            $modal.modal('show');
-        } else {
-            // Fallback manual para mostrar modal
-            showModalManually($modal);
-        }
+        $('#serverUploadsModal').modal('show');
     });
 
     // Manejar escaneo de uploads del servidor
@@ -1476,12 +1334,7 @@ $(document).ready(function() {
             },
             success: function(response) {
                 if (response && response.success) {
-                    var $modal = $('#serverUploadsModal');
-                    if (typeof $modal.modal === 'function') {
-                        $modal.modal('hide');
-                    } else {
-                        hideModalManually($modal);
-                    }
+                    $('#serverUploadsModal').modal('hide');
                     
                     // Mostrar mensaje de éxito
                     var alertHtml = '<div class="alert alert-success alert-dismissible" role="alert">';
