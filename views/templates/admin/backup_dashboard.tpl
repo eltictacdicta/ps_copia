@@ -239,6 +239,16 @@
     border-left: 4px solid #9e9e9e;
 }
 
+.backup-server-import {
+    background-color: #fefaee;
+    border-left: 4px solid #f0ad4e;
+}
+
+.backup-server-import-restored {
+    background-color: #e7f4e4;
+    border-left: 4px solid #28a745;
+}
+
 .table-responsive {
     border: 1px solid #ddd;
     border-radius: 4px;
@@ -415,16 +425,20 @@ $(document).ready(function() {
 
         backups.forEach(function(backup) {
             var rowClass = backup.type === 'complete' ? 'backup-complete' : 
-                          (backup.type === 'server_import' ? 'backup-server-import' : 'backup-individual');
+                          (backup.type === 'server_import' ? 'backup-server-import' : 
+                          (backup.type === 'server_import_restored' ? 'backup-server-import-restored' : 'backup-individual'));
             var typeIcon = backup.type === 'complete' ? 'icon-archive' : 
                           (backup.type === 'server_import' ? 'icon-cloud-download' :
-                          (backup.type === 'database' ? 'icon-database' : 'icon-folder-open'));
+                          (backup.type === 'server_import_restored' ? 'icon-check-circle' :
+                          (backup.type === 'database' ? 'icon-database' : 'icon-folder-open')));
             var typeLabel = backup.type === 'complete' ? 'Backup Completo' : 
                            (backup.type === 'server_import' ? 'Importado de Servidor' :
-                           (backup.type === 'database' ? 'Base de Datos' : 'Archivos'));
+                           (backup.type === 'server_import_restored' ? 'Restaurado Exitosamente' :
+                           (backup.type === 'database' ? 'Base de Datos' : 'Archivos')));
             var typeClass = backup.type === 'complete' ? 'label backup-type-complete' : 
                            (backup.type === 'server_import' ? 'label label-warning' :
-                           (backup.type === 'database' ? 'label label-info' : 'label label-success'));
+                           (backup.type === 'server_import_restored' ? 'label label-success' :
+                           (backup.type === 'database' ? 'label label-info' : 'label label-success')));
             
             html += '<tr class="' + rowClass + '">';
             html += '<td><i class="' + typeIcon + '"></i> ' + backup.name + '</td>';
@@ -480,6 +494,28 @@ $(document).ready(function() {
                 html += '<div class="alert alert-info" style="margin-top: 8px; padding: 5px; font-size: 0.85em;">';
                 html += '<i class="icon-info-circle"></i> Este backup fue importado desde servidor. ';
                 html += 'Para usar este archivo, descárgalo y usa la funcionalidad de importación normal.';
+                html += '</div>';
+            } else if (backup.type === 'server_import_restored') {
+                // Backup importado desde servidor que ya fue restaurado
+                html += '<div class="text-muted" style="font-size: 0.9em; margin-bottom: 8px;">';
+                html += '<strong>Origen:</strong> ' + (backup.imported_from || 'Desconocido') + '<br>';
+                html += '<strong>Estado:</strong> Restaurado completamente<br>';
+                if (backup.migration_applied) {
+                    html += '<strong>Migración:</strong> <span class="text-success">Aplicada</span>';
+                } else {
+                    html += '<strong>Migración:</strong> <span class="text-warning">No aplicada</span>';
+                }
+                html += '</div>';
+                
+                // Solo mostrar botón de eliminar del histórico
+                html += '<button class="btn btn-xs btn-danger delete-backup-btn" ';
+                html += 'data-backup-name="' + backup.name + '">';
+                html += '<i class="icon-trash"></i> Eliminar del Histórico';
+                html += '</button>';
+                
+                html += '<div class="alert alert-success" style="margin-top: 8px; padding: 5px; font-size: 0.85em;">';
+                html += '<i class="icon-check"></i> Este backup fue restaurado correctamente en la tienda actual. ';
+                html += 'Los archivos y base de datos ya están aplicados.';
                 html += '</div>';
             } else {
                 // Individual restore buttons (legacy support - no debería aparecer con los nuevos cambios)

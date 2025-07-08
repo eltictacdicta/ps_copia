@@ -1156,45 +1156,58 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                             'files_file' => $backupData['files_file']
                         ];
                     }
-                } elseif (isset($backupData['zip_file']) && $backupData['type'] === 'server_import') {
-                    // Backup importado desde servidor (copia directa)
-                    $zipFile = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH) . '/' . $backupData['zip_file'];
-                    
-                    if (file_exists($zipFile)) {
-                        $fileSize = filesize($zipFile);
-                        
-                        $completeBackups[] = [
-                            'name' => $backupName,
-                            'date' => $backupData['created_at'],
-                            'size' => $fileSize,
-                            'size_formatted' => $this->formatBytes($fileSize),
-                            'type' => 'server_import',
-                            'zip_file' => $backupData['zip_file'],
-                            'imported_from' => $backupData['imported_from'] ?? 'Unknown',
-                            'import_method' => $backupData['import_method'] ?? 'direct_copy'
-                        ];
-                    }
+                }
+                
+                // Verificar si es un backup importado desde servidor (condición independiente)
+                if (isset($backupData['type']) && $backupData['type'] === 'server_import') {
+                    // Backup importado desde servidor que YA está completamente restaurado
+                    // Mostrar como backup completo porque ya se aplicó a la tienda
+                    $completeBackups[] = [
+                        'name' => $backupName,
+                        'date' => $backupData['created_at'],
+                        'size' => 0, // No aplica, ya está restaurado
+                        'size_formatted' => 'Restaurado',
+                        'type' => 'server_import_restored',
+                        'imported_from' => $backupData['imported_from'] ?? 'Unknown',
+                        'migration_applied' => $backupData['migration_applied'] ?? false,
+                        'restoration_note' => 'Este backup ya fue restaurado en la tienda actual'
+                    ];
                 }
             }
         } else {
             // Formato original: objeto con claves como nombres de backup
             foreach ($metadata as $backupName => $backupInfo) {
-                // Check if both files still exist
-                $dbFile = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH) . '/' . $backupInfo['database_file'];
-                $filesFile = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH) . '/' . $backupInfo['files_file'];
-                
-                if (file_exists($dbFile) && file_exists($filesFile)) {
-                    $totalSize = filesize($dbFile) + filesize($filesFile);
-                    
+                // Verificar si es un backup importado desde servidor que ya fue restaurado
+                if (isset($backupInfo['type']) && $backupInfo['type'] === 'server_import') {
+                    // Backup importado desde servidor que YA está completamente restaurado
                     $completeBackups[] = [
                         'name' => $backupName,
                         'date' => $backupInfo['created_at'],
-                        'size' => $totalSize,
-                        'size_formatted' => $this->formatBytes($totalSize),
-                        'type' => 'complete',
-                        'database_file' => $backupInfo['database_file'],
-                        'files_file' => $backupInfo['files_file']
+                        'size' => 0, // No aplica, ya está restaurado
+                        'size_formatted' => 'Restaurado',
+                        'type' => 'server_import_restored',
+                        'imported_from' => $backupInfo['imported_from'] ?? 'Unknown',
+                        'migration_applied' => $backupInfo['migration_applied'] ?? false,
+                        'restoration_note' => 'Este backup ya fue restaurado en la tienda actual'
                     ];
+                } else {
+                    // Backup completo tradicional - verificar que los archivos existan
+                    $dbFile = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH) . '/' . $backupInfo['database_file'];
+                    $filesFile = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH) . '/' . $backupInfo['files_file'];
+                    
+                    if (file_exists($dbFile) && file_exists($filesFile)) {
+                        $totalSize = filesize($dbFile) + filesize($filesFile);
+                        
+                        $completeBackups[] = [
+                            'name' => $backupName,
+                            'date' => $backupInfo['created_at'],
+                            'size' => $totalSize,
+                            'size_formatted' => $this->formatBytes($totalSize),
+                            'type' => 'complete',
+                            'database_file' => $backupInfo['database_file'],
+                            'files_file' => $backupInfo['files_file']
+                        ];
+                    }
                 }
             }
         }
