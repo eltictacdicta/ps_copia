@@ -431,15 +431,15 @@ class DatabaseMigrator
 
         // Update shop_url table with the new domain (without protocol)
         try {
-            $shopUrlTable = _DB_PREFIX_ . 'shop_url';
+            $shopUrlTable = $this->getShopUrlTableName();
             
-            if (!$this->tableExists($shopUrlTable)) {
-                $this->logger->warning("shop_url table does not exist");
+            if (!$shopUrlTable) {
+                $this->logger->warning("No shop_url table found in database");
             } elseif (!$newDomain) {
                 $this->logger->error("Could not extract domain from new URL: {$newUrl}");
             } else {
                 // Log current state before update
-                $currentData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
+                $currentData = $this->safeDbQuery("SELECT * FROM `{$shopUrlTable}` LIMIT 1", 'getRow');
                 $this->logger->info("Current shop_url data before update", $currentData ?: []);
                 
                 // Update both domain and domain_ssl (PrestaShop stores domains without protocol)
@@ -451,12 +451,12 @@ class DatabaseMigrator
                         `domain_ssl` = '" . pSQL($newDomain) . "',
                         `physical_uri` = '" . pSQL($physicalUri) . "'";
                         
-                $result = $this->db->execute($sql);
+                $result = $this->safeDbQuery($sql, 'execute');
                 
                 $this->logger->info("Update query executed with result: " . ($result ? 'SUCCESS' : 'FAILED'));
                 
                 // Log state after update
-                $newData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
+                $newData = $this->safeDbQuery("SELECT * FROM `{$shopUrlTable}` LIMIT 1", 'getRow');
                 $this->logger->info("New shop_url data after update", $newData ?: []);
                 
                 $this->logger->info("Updated shop_url table - domain: {$newDomain}, physical_uri: {$physicalUri}");
@@ -722,15 +722,11 @@ class DatabaseMigrator
                 $this->logger->info("Removed port from domain: {$originalDomain} → {$currentDomain}");
             }
 
-            $shopUrlTable = _DB_PREFIX_ . 'shop_url';
-            if ($this->tableExists($shopUrlTable)) {
+            $shopUrlTable = $this->getShopUrlTableName();
+            if ($shopUrlTable) {
                 // Log current state before update with error handling
-                try {
-                    $currentData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
-                    $this->logger->info("Current shop_url data before AGGRESSIVE update", $currentData ?: []);
-                } catch (Exception $e) {
-                    $this->logger->warning("Could not read current shop_url data: " . $e->getMessage());
-                }
+                $currentData = $this->safeDbQuery("SELECT * FROM `{$shopUrlTable}` LIMIT 1", 'getRow');
+                $this->logger->info("Current shop_url data before AGGRESSIVE update", $currentData ?: []);
                 
                 // Update domain, domain_ssl, and physical_uri with WHERE clause
                 $sql = "UPDATE `{$shopUrlTable}` SET 
@@ -738,18 +734,14 @@ class DatabaseMigrator
                         `domain_ssl` = '" . pSQL($currentDomain) . "',
                         `physical_uri` = '/' 
                         WHERE `id_shop_url` > 0";
-                $result = $this->db->execute($sql);
+                $result = $this->safeDbQuery($sql, 'execute');
                 
                 if ($result) {
                     $this->logger->info("AGGRESSIVE update query executed successfully");
                     
                     // Log state after update with error handling
-                    try {
-                        $newData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
-                        $this->logger->info("New shop_url data after AGGRESSIVE update", $newData ?: []);
-                    } catch (Exception $e) {
-                        $this->logger->warning("Could not read updated shop_url data: " . $e->getMessage());
-                    }
+                    $newData = $this->safeDbQuery("SELECT * FROM `{$shopUrlTable}` LIMIT 1", 'getRow');
+                    $this->logger->info("New shop_url data after AGGRESSIVE update", $newData ?: []);
                     
                     $this->logger->info("AGGRESSIVELY updated shop_url table - domain: {$currentDomain}, physical_uri: /");
                 } else {
@@ -878,10 +870,10 @@ class DatabaseMigrator
          $this->logger->info("Force updating shop_url table");
 
          try {
-             $shopUrlTable = _DB_PREFIX_ . 'shop_url';
+             $shopUrlTable = $this->getShopUrlTableName();
              
-             if (!$this->tableExists($shopUrlTable)) {
-                 $this->logger->error("shop_url table does not exist, cannot force update");
+             if (!$shopUrlTable) {
+                 $this->logger->error("No shop_url table found, cannot force update");
                  return;
              }
 
@@ -928,12 +920,8 @@ class DatabaseMigrator
              }
 
              // Log current state with better error handling
-             try {
-                 $currentData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
-                 $this->logger->info("Current shop_url data before force update", $currentData ?: []);
-             } catch (Exception $e) {
-                 $this->logger->warning("Could not read current shop_url data: " . $e->getMessage());
-             }
+             $currentData = $this->safeDbQuery("SELECT * FROM `{$shopUrlTable}` LIMIT 1", 'getRow');
+             $this->logger->info("Current shop_url data before force update", $currentData ?: []);
 
              // Limpiar el dominio (remover puerto si existe)
              if (strpos($targetDomain, ':') !== false) {
@@ -948,18 +936,14 @@ class DatabaseMigrator
                      `physical_uri` = '" . pSQL($targetPath) . "' 
                      WHERE `id_shop_url` > 0";
                      
-             $result = $this->db->execute($sql);
+             $result = $this->safeDbQuery($sql, 'execute');
              
              if ($result) {
                  $this->logger->info("Force update query executed successfully");
                  
                  // Log state after update with better error handling
-                 try {
-                     $newData = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
-                     $this->logger->info("New shop_url data after force update", $newData ?: []);
-                 } catch (Exception $e) {
-                     $this->logger->warning("Could not read updated shop_url data: " . $e->getMessage());
-                 }
+                 $newData = $this->safeDbQuery("SELECT * FROM `{$shopUrlTable}` LIMIT 1", 'getRow');
+                 $this->logger->info("New shop_url data after force update", $newData ?: []);
                  
                  $this->logger->info("Force updated shop_url table - domain: {$targetDomain}, physical_uri: {$targetPath}");
                  
@@ -1297,24 +1281,25 @@ class DatabaseMigrator
      private function updateDomainConfiguration(string $domain): void
      {
          try {
-             $this->logger->info("Updating configuration domains to {$domain}");
+             $currentPrefix = $this->getCurrentPrefix();
+             $this->logger->info("Updating configuration domains to {$domain} using prefix: " . $currentPrefix);
              
              // Actualizar configuraciones de dominio una por una para mejor control
              $configKeys = ['PS_SHOP_DOMAIN', 'PS_SHOP_DOMAIN_SSL'];
              
              foreach ($configKeys as $configKey) {
                  // Verificar si existe la configuración
-                 $existsQuery = "SELECT COUNT(*) FROM `" . _DB_PREFIX_ . "configuration` WHERE `name` = '" . pSQL($configKey) . "'";
+                 $existsQuery = "SELECT COUNT(*) FROM `" . $currentPrefix . "configuration` WHERE `name` = '" . pSQL($configKey) . "'";
                  $exists = $this->db->getValue($existsQuery);
                  
                  if ($exists) {
                      // Actualizar configuración existente
-                     $sql = "UPDATE `" . _DB_PREFIX_ . "configuration` SET `value` = '" . pSQL($domain) . "' WHERE `name` = '" . pSQL($configKey) . "'";
+                     $sql = "UPDATE `" . $currentPrefix . "configuration` SET `value` = '" . pSQL($domain) . "' WHERE `name` = '" . pSQL($configKey) . "'";
                      $result = $this->db->execute($sql);
                      $this->logger->info("Updated {$configKey} to {$domain}: " . ($result ? 'SUCCESS' : 'FAILED'));
                  } else {
                      // Insertar nueva configuración si no existe
-                     $sql = "INSERT INTO `" . _DB_PREFIX_ . "configuration` (`name`, `value`, `date_add`, `date_upd`) VALUES ('" . pSQL($configKey) . "', '" . pSQL($domain) . "', NOW(), NOW())";
+                     $sql = "INSERT INTO `" . $currentPrefix . "configuration` (`name`, `value`, `date_add`, `date_upd`) VALUES ('" . pSQL($configKey) . "', '" . pSQL($domain) . "', NOW(), NOW())";
                      $result = $this->db->execute($sql);
                      $this->logger->info("Inserted new {$configKey} with value {$domain}: " . ($result ? 'SUCCESS' : 'FAILED'));
                  }
@@ -1436,20 +1421,32 @@ class DatabaseMigrator
      */
     private function getCurrentPrefix(): string
     {
-        if (defined('_DB_PREFIX_')) {
-            return _DB_PREFIX_;
-        }
-        
-        // Try to read from parameters.php
+        // First try to read from parameters.php (most reliable)
         $parametersFile = _PS_ROOT_DIR_ . '/app/config/parameters.php';
         if (file_exists($parametersFile)) {
-            $content = file_get_contents($parametersFile);
-            if (preg_match('/\'database_prefix\'\s*=>\s*\'([^\']*)\'/s', $content, $matches)) {
-                return $matches[1];
+            try {
+                $parametersArray = include $parametersFile;
+                if (isset($parametersArray['parameters']['database_prefix'])) {
+                    $prefix = $parametersArray['parameters']['database_prefix'];
+                    $this->logger->info("Found prefix from parameters.php: " . $prefix);
+                    return $prefix;
+                }
+            } catch (Exception $e) {
+                $this->logger->warning("Could not read parameters.php: " . $e->getMessage());
             }
         }
         
-        return 'ps_'; // Default fallback
+        // Fallback to PrestaShop constant
+        if (defined('_DB_PREFIX_')) {
+            $prefix = _DB_PREFIX_;
+            $this->logger->info("Using _DB_PREFIX_ constant: " . $prefix);
+            return $prefix;
+        }
+        
+        // Last resort fallback
+        $fallbackPrefix = 'ps_';
+        $this->logger->warning("Using fallback prefix: " . $fallbackPrefix);
+        return $fallbackPrefix;
     }
 
     /**
@@ -1935,30 +1932,26 @@ Options -Indexes
          
          try {
              // Verificar tabla shop_url
-             $shopUrlTable = _DB_PREFIX_ . 'shop_url';
-             if ($this->tableExists($shopUrlTable)) {
-                 $query = "SELECT domain, domain_ssl FROM `{$shopUrlTable}` LIMIT 1";
-                 $this->logger->info("Executing verification query: " . $query);
-                 $shopUrlData = $this->db->getRow($query);
+             $shopUrlTable = $this->getShopUrlTableName();
+             if ($shopUrlTable) {
+                 $shopUrlData = $this->safeDbQuery("SELECT domain, domain_ssl FROM `{$shopUrlTable}` LIMIT 1", 'getRow');
                  if ($shopUrlData) {
                      $this->logger->info("shop_url verification", [
-                         'domain' => $shopUrlData['domain'],
-                         'domain_ssl' => $shopUrlData['domain_ssl']
+                         'domain' => $shopUrlData['domain'] ?? 'N/A',
+                         'domain_ssl' => $shopUrlData['domain_ssl'] ?? 'N/A'
                      ]);
-                 } else {
-                     $this->logger->warning("No data found in shop_url table");
                  }
-             } else {
-                 $this->logger->warning("shop_url table does not exist with prefix " . _DB_PREFIX_);
              }
              
              // Verificar configuraciones de dominio
+             $currentPrefix = $this->getCurrentPrefix();
              $configKeys = ['PS_SHOP_DOMAIN', 'PS_SHOP_DOMAIN_SSL'];
              foreach ($configKeys as $configKey) {
-                 $configValue = $this->db->getValue("SELECT `value` FROM `" . _DB_PREFIX_ . "configuration` WHERE `name` = '" . pSQL($configKey) . "'");
+                 $configValue = $this->db->getValue("SELECT `value` FROM `" . $currentPrefix . "configuration` WHERE `name` = '" . pSQL($configKey) . "'");
                  $this->logger->info("Configuration verification", [
                      'key' => $configKey,
-                     'value' => $configValue
+                     'value' => $configValue,
+                     'prefix_used' => $currentPrefix
                  ]);
              }
              
@@ -1968,4 +1961,64 @@ Options -Indexes
              $this->logger->error("Migration verification failed: " . $e->getMessage());
          }
      }
+
+    /**
+     * Get the correct shop_url table name based on what exists in the database
+     *
+     * @return string|null
+     */
+    private function getShopUrlTableName(): ?string
+    {
+        // Get the correct current prefix
+        $currentPrefix = $this->getCurrentPrefix();
+        $this->logger->info("Using current prefix for shop_url table: " . $currentPrefix);
+        
+        // Try current prefix first
+        $currentPrefixTable = $currentPrefix . 'shop_url';
+        if ($this->tableExists($currentPrefixTable)) {
+            $this->logger->info("Found shop_url table with current prefix: " . $currentPrefixTable);
+            return $currentPrefixTable;
+        }
+        
+        // If current prefix doesn't work, search for any shop_url table
+        try {
+            $sql = "SHOW TABLES LIKE '%shop_url'";
+            $result = $this->db->executeS($sql);
+            
+            if (!empty($result)) {
+                $tableName = reset($result[0]);
+                $this->logger->info("Found alternative shop_url table: " . $tableName);
+                return $tableName;
+            }
+        } catch (Exception $e) {
+            $this->logger->error("Error finding shop_url table: " . $e->getMessage());
+        }
+        
+        $this->logger->error("No shop_url table found with any prefix");
+        return null;
+    }
+
+    /**
+     * Safe database query execution with error handling
+     *
+     * @param string $sql
+     * @param string $operation
+     * @return array|bool
+     */
+    private function safeDbQuery(string $sql, string $operation = 'query'): array|bool
+    {
+        try {
+            if ($operation === 'getRow') {
+                return $this->db->getRow($sql) ?: [];
+            } elseif ($operation === 'executeS') {
+                return $this->db->executeS($sql) ?: [];
+            } else {
+                return $this->db->execute($sql);
+            }
+        } catch (Exception $e) {
+            $this->logger->error("SQL query failed for {$operation}: " . $e->getMessage());
+            $this->logger->error("Failed query: " . $sql);
+            return $operation === 'getRow' || $operation === 'executeS' ? [] : false;
+        }
+    }
  }  
