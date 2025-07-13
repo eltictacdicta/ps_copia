@@ -47,12 +47,38 @@ class DatabaseMigrator
     }
 
     /**
+     * Detect database prefix from backup content
+     *
+     * @param string $backupFile
+     * @return string|null
+     */
+    public function detectPrefixFromBackup(string $backupFile): ?string
+    {
+        $content = file_get_contents($backupFile);
+        if (!$content) {
+            return null;
+        }
+        
+        // Look for CREATE TABLE statements
+        if (preg_match('/CREATE TABLE `([^`]+_)[^`]*`/', $content, $matches)) {
+            return $matches[1];
+        }
+        
+        // Look for INSERT INTO statements
+        if (preg_match('/INSERT INTO `([^`]+_)[^`]*`/', $content, $matches)) {
+            return $matches[1];
+        }
+        
+        return null;
+    }
+
+    /**
      * Get current database credentials from environment
      * This ensures we use the correct credentials even after backup restoration
      *
      * @return array
      */
-    private function getCurrentDbCredentials(): array
+    public function getCurrentDbCredentials(): array
     {
         // First try to read from parameters.php (current environment)
         $parametersFile = _PS_ROOT_DIR_ . '/app/config/parameters.php';
@@ -125,7 +151,7 @@ class DatabaseMigrator
      *
      * @return bool
      */
-    private function isDdevEnvironment(): bool
+    public function isDdevEnvironment(): bool
     {
         // Check for DDEV environment variables
         if (getenv('DDEV_SITENAME') || getenv('DDEV_TLD')) {
@@ -144,6 +170,28 @@ class DatabaseMigrator
         }
         
         return false;
+    }
+
+    /**
+     * Extract source domain from backup (public method)
+     *
+     * @param string $backupFile
+     * @return string|null
+     */
+    public function extractSourceDomainFromBackup(string $backupFile): ?string
+    {
+        return $this->extractSourceDomainFromBackupPrivate($backupFile);
+    }
+
+    /**
+     * Restore external database (public method)
+     *
+     * @param string $backupFile
+     * @throws Exception
+     */
+    public function restoreExternalDatabase(string $backupFile): void
+    {
+        $this->restoreExternalDatabasePrivate($backupFile);
     }
 
     /**
@@ -180,7 +228,7 @@ class DatabaseMigrator
 
         try {
             // Restore the external database
-            $this->restoreExternalDatabase($backupFile);
+            $this->restoreExternalDatabasePrivate($backupFile);
 
             // Apply URL migrations - ALWAYS attempt some form of URL migration
             if (isset($migrationConfig['migrate_urls']) && $migrationConfig['migrate_urls'] && 
@@ -231,7 +279,7 @@ class DatabaseMigrator
             
             // Restore from temporary backup
             try {
-                $this->restoreExternalDatabase($tempBackup);
+                $this->restoreExternalDatabasePrivate($tempBackup);
                 $this->logger->info("Database restored from temporary backup");
             } catch (Exception $restoreError) {
                 $this->logger->error("Failed to restore from temporary backup: " . $restoreError->getMessage());
@@ -307,7 +355,7 @@ class DatabaseMigrator
      * @param string $backupFile
      * @throws Exception
      */
-    private function restoreExternalDatabase(string $backupFile): void
+         private function restoreExternalDatabasePrivate(string $backupFile): void
     {
         if (!file_exists($backupFile)) {
             throw new Exception("Database backup file does not exist: " . $backupFile);
@@ -939,8 +987,8 @@ class DatabaseMigrator
 
          // Detect source URL from backup database - this is expensive, only do if needed
          if (empty($migrationConfig['old_url'])) {
-             $this->logger->info("Attempting to extract source domain from backup (this may take a moment...)");
-             $sourceDomain = $this->extractSourceDomainFromBackup($backupFile);
+                         $this->logger->info("Attempting to extract source domain from backup (this may take a moment...)");
+            $sourceDomain = $this->extractSourceDomainFromBackupPrivate($backupFile);
              if ($sourceDomain) {
                  // Assume https for backup URL (most common case)
                  $migrationConfig['old_url'] = 'https://' . $sourceDomain;
@@ -977,7 +1025,7 @@ class DatabaseMigrator
       * @param string $backupFile
       * @return string|null
       */
-     private function extractSourceDomainFromBackup(string $backupFile): ?string
+     private function extractSourceDomainFromBackupPrivate(string $backupFile): ?string
      {
          try {
              $this->logger->info("Extracting source domain from backup: " . basename($backupFile));
@@ -1472,7 +1520,7 @@ class DatabaseMigrator
         
         if ($sourcePrefix === $targetPrefix) {
             // No prefix change needed, restore directly
-            $this->restoreExternalDatabase($backupFile);
+            $this->restoreExternalDatabasePrivate($backupFile);
             return;
         }
         
@@ -1481,7 +1529,7 @@ class DatabaseMigrator
         
         try {
             $this->createAdaptedBackup($backupFile, $tempFile, $sourcePrefix, $targetPrefix);
-            $this->restoreExternalDatabase($tempFile);
+            $this->restoreExternalDatabasePrivate($tempFile);
             
             // Clean up temporary file
             @unlink($tempFile);
