@@ -1998,27 +1998,232 @@ Options -Indexes
         return null;
     }
 
+
+
     /**
-     * Safe database query execution with error handling
+     * Debug logger that writes to a separate file
+     *
+     * @param string $message
+     * @param array $context
+     */
+    private function debugLog(string $message, array $context = []): void
+    {
+        $debugFile = _PS_ROOT_DIR_ . '/var/logs/ps_copia_debug.log';
+        $timestamp = date('Y-m-d H:i:s');
+        $contextStr = !empty($context) ? json_encode($context, JSON_PRETTY_PRINT) : '';
+        $logEntry = "[{$timestamp}] {$message}";
+        if ($contextStr) {
+            $logEntry .= " | Context: {$contextStr}";
+        }
+        $logEntry .= PHP_EOL;
+        
+        // Ensure directory exists
+        $logDir = dirname($debugFile);
+        if (!is_dir($logDir)) {
+            mkdir($logDir, 0755, true);
+        }
+        
+        file_put_contents($debugFile, $logEntry, FILE_APPEND | LOCK_EX);
+    }
+
+    /**
+     * Test SQL query without executing it
      *
      * @param string $sql
-     * @param string $operation
-     * @return array|bool
+     * @return array
      */
-    private function safeDbQuery(string $sql, string $operation = 'query'): array|bool
+    private function testSqlQuery(string $sql): array
     {
+        $this->debugLog("TESTING SQL QUERY", ['sql' => $sql]);
+        
         try {
-            if ($operation === 'getRow') {
-                return $this->db->getRow($sql) ?: [];
-            } elseif ($operation === 'executeS') {
-                return $this->db->executeS($sql) ?: [];
+            // Try to prepare the statement to check syntax
+            $stmt = $this->db->prepare($sql);
+            if ($stmt) {
+                $this->debugLog("SQL SYNTAX OK", ['sql' => $sql]);
+                return ['status' => 'ok', 'message' => 'SQL syntax is valid'];
             } else {
-                return $this->db->execute($sql);
+                $this->debugLog("SQL SYNTAX ERROR", ['sql' => $sql, 'error' => 'Failed to prepare statement']);
+                return ['status' => 'error', 'message' => 'Failed to prepare statement'];
             }
         } catch (Exception $e) {
-            $this->logger->error("SQL query failed for {$operation}: " . $e->getMessage());
-            $this->logger->error("Failed query: " . $sql);
-            return $operation === 'getRow' || $operation === 'executeS' ? [] : false;
+            $this->debugLog("SQL SYNTAX EXCEPTION", ['sql' => $sql, 'error' => $e->getMessage()]);
+            return ['status' => 'error', 'message' => $e->getMessage()];
         }
+    }
+
+    /**
+     * Enhanced safe database query with testing mode
+     *
+     * @param string $sql
+     * @param string $method
+     * @param bool $testMode
+     * @return mixed
+     */
+    private function safeDbQuery(string $sql, string $method = 'execute', bool $testMode = false)
+    {
+        $this->debugLog("SAFE DB QUERY START", ['sql' => $sql, 'method' => $method, 'testMode' => $testMode]);
+        
+        if ($testMode) {
+            return $this->testSqlQuery($sql);
+        }
+        
+        try {
+            switch ($method) {
+                case 'execute':
+                    $result = $this->db->execute($sql);
+                    $this->debugLog("DB EXECUTE SUCCESS", ['sql' => $sql, 'result' => $result]);
+                    return $result;
+                case 'executeS':
+                    $result = $this->db->executeS($sql);
+                    $this->debugLog("DB EXECUTES SUCCESS", ['sql' => $sql, 'count' => is_array($result) ? count($result) : 0]);
+                    return $result;
+                case 'getRow':
+                    // Remove LIMIT 1 from queries as getRow() already returns only one row
+                    $cleanSql = preg_replace('/\s+LIMIT\s+1\s*$/i', '', $sql);
+                    $result = $this->db->getRow($cleanSql);
+                    $this->debugLog("DB GETROW SUCCESS", ['original_sql' => $sql, 'clean_sql' => $cleanSql, 'result' => $result]);
+                    return $result;
+                case 'getValue':
+                    $result = $this->db->getValue($sql);
+                    $this->debugLog("DB GETVALUE SUCCESS", ['sql' => $sql, 'result' => $result]);
+                    return $result;
+                default:
+                    $this->debugLog("DB UNKNOWN METHOD", ['sql' => $sql, 'method' => $method]);
+                    return false;
+            }
+        } catch (Exception $e) {
+            $this->debugLog("DB QUERY ERROR", ['sql' => $sql, 'method' => $method, 'error' => $e->getMessage()]);
+            if ($this->logger) {
+                $this->logger->error("Database query failed: " . $e->getMessage(), ['sql' => $sql]);
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Test all critical SQL queries before restoration
+     *
+     * @param string $newUrl
+     * @return array
+     */
+    public function testRestoration(string $newUrl): array
+    {
+        $this->debugLog("=== STARTING RESTORATION TEST ===", ['newUrl' => $newUrl]);
+        
+        $results = [];
+        
+        // Test 1: Check current prefix
+        $currentPrefix = $this->getCurrentPrefix();
+        $results['current_prefix'] = $currentPrefix;
+        $this->debugLog("TEST 1: Current prefix", ['prefix' => $currentPrefix]);
+        
+        // Test 2: Check if shop_url table exists
+        $shopUrlTable = $this->getShopUrlTableName();
+        $results['shop_url_table'] = $shopUrlTable;
+        $this->debugLog("TEST 2: Shop URL table", ['table' => $shopUrlTable]);
+        
+        // Test 3: Test shop_url queries
+        if ($shopUrlTable) {
+            $sql1 = "SELECT * FROM `{$shopUrlTable}` LIMIT 1";
+            $test1 = $this->safeDbQuery($sql1, 'getRow', true);
+            $results['shop_url_select_test'] = $test1;
+            
+            $newParsedUrl = parse_url($newUrl);
+            $newDomain = $newParsedUrl['host'] ?? '';
+            if ($newDomain) {
+                $sql2 = "UPDATE `{$shopUrlTable}` SET `domain` = '" . pSQL($newDomain) . "', `domain_ssl` = '" . pSQL($newDomain) . "' WHERE 1";
+                $test2 = $this->safeDbQuery($sql2, 'execute', true);
+                $results['shop_url_update_test'] = $test2;
+            }
+        }
+        
+        // Test 4: Test configuration table queries
+        $configTable = $currentPrefix . 'configuration';
+        $sql3 = "SELECT `value` FROM `{$configTable}` WHERE `name` = 'PS_SHOP_DOMAIN'";
+        $test3 = $this->safeDbQuery($sql3, 'getValue', true);
+        $results['config_select_test'] = $test3;
+        
+        $newParsedUrl = parse_url($newUrl);
+        $newDomain = $newParsedUrl['host'] ?? '';
+        if ($newDomain) {
+            $sql4 = "UPDATE `{$configTable}` SET `value` = '" . pSQL($newDomain) . "' WHERE `name` = 'PS_SHOP_DOMAIN'";
+            $test4 = $this->safeDbQuery($sql4, 'execute', true);
+            $results['config_update_test'] = $test4;
+        }
+        
+        // Test 5: Check what tables exist
+        $sql5 = "SHOW TABLES LIKE '%shop_url%'";
+        $test5 = $this->safeDbQuery($sql5, 'executeS', true);
+        $results['show_tables_test'] = $test5;
+        
+        // Test 6: Check actual data in shop_url table
+        if ($shopUrlTable) {
+            $actualData = $this->safeDbQuery("SELECT * FROM `{$shopUrlTable}` LIMIT 1", 'getRow', false);
+            $results['actual_shop_url_data'] = $actualData;
+        }
+        
+        $this->debugLog("=== RESTORATION TEST COMPLETE ===", $results);
+        
+        return $results;
+    }
+
+    /**
+     * Run a comprehensive diagnostic
+     *
+     * @return array
+     */
+    public function runDiagnostic(): array
+    {
+        $this->debugLog("=== STARTING DIAGNOSTIC ===");
+        
+        $diagnostic = [];
+        
+        // Check database connection
+        try {
+            $diagnostic['db_connection'] = $this->db ? 'OK' : 'FAILED';
+        } catch (Exception $e) {
+            $diagnostic['db_connection'] = 'ERROR: ' . $e->getMessage();
+        }
+        
+        // Check current prefix sources
+        $diagnostic['prefix_from_constant'] = defined('_DB_PREFIX_') ? _DB_PREFIX_ : 'NOT_DEFINED';
+        $diagnostic['prefix_from_function'] = $this->getCurrentPrefix();
+        
+        // Check configuration files
+        $parametersFile = _PS_ROOT_DIR_ . '/app/config/parameters.php';
+        $diagnostic['parameters_file_exists'] = file_exists($parametersFile);
+        
+        if (file_exists($parametersFile)) {
+            try {
+                $params = include $parametersFile;
+                $diagnostic['parameters_prefix'] = $params['parameters']['database_prefix'] ?? 'NOT_FOUND';
+            } catch (Exception $e) {
+                $diagnostic['parameters_error'] = $e->getMessage();
+            }
+        }
+        
+        // Check what shop_url tables exist
+        try {
+            $tables = $this->db->executeS("SHOW TABLES LIKE '%shop_url%'");
+            $diagnostic['shop_url_tables'] = array_map('current', $tables);
+        } catch (Exception $e) {
+            $diagnostic['shop_url_tables_error'] = $e->getMessage();
+        }
+        
+        // Check current shop_url data
+        $shopUrlTable = $this->getShopUrlTableName();
+        if ($shopUrlTable) {
+            try {
+                $data = $this->db->getRow("SELECT * FROM `{$shopUrlTable}` LIMIT 1");
+                $diagnostic['current_shop_url_data'] = $data;
+            } catch (Exception $e) {
+                $diagnostic['shop_url_data_error'] = $e->getMessage();
+            }
+        }
+        
+        $this->debugLog("=== DIAGNOSTIC COMPLETE ===", $diagnostic);
+        
+        return $diagnostic;
     }
  }  
