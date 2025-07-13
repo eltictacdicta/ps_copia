@@ -251,6 +251,10 @@ class DatabaseMigrator
                 $this->updateShopUrlTable();
             }
 
+            // SIEMPRE forzar actualización de shop_url independientemente de la configuración anterior
+            $this->logger->info("FORCING shop_url table update to ensure proper domain configuration");
+            $this->forceUpdateShopUrl($migrationConfig);
+
             // NOTA: Ya no migramos directorios admin - siempre se mantiene la configuración original del backup
             // La carpeta admin conservará la URL/configuración antigua independientemente de la configuración
             $this->logger->info("Preservando configuración de directorio admin del backup original");
@@ -271,6 +275,9 @@ class DatabaseMigrator
 
             // Clean temporary backup
             @unlink($tempBackup);
+
+            // Verificar que la migración se haya completado correctamente
+            $this->verifyMigrationSuccess($migrationConfig);
 
             $this->logger->info("Database migration completed successfully");
 
@@ -895,9 +902,29 @@ class DatabaseMigrator
                  $this->logger->info("Using detected current domain for force update: " . ($targetDomain ?: 'NULL'));
              }
 
+             // Si no se puede detectar el dominio, usar fallbacks más agresivos
              if (!$targetDomain) {
-                 $this->logger->error("Could not determine target domain for force update");
-                 return;
+                 $this->logger->warning("Could not determine target domain, trying fallbacks");
+                 
+                 // Intentar múltiples fallbacks
+                 $fallbacks = [
+                     $_SERVER['HTTP_HOST'] ?? '',
+                     $_SERVER['SERVER_NAME'] ?? '',
+                     'localhost'
+                 ];
+                 
+                 foreach ($fallbacks as $fallback) {
+                     if (!empty($fallback)) {
+                         $targetDomain = $fallback;
+                         $this->logger->info("Using fallback domain: " . $targetDomain);
+                         break;
+                     }
+                 }
+                 
+                 if (!$targetDomain) {
+                     $this->logger->error("All fallbacks failed, cannot force update shop_url");
+                     return;
+                 }
              }
 
              // Log current state with better error handling
@@ -906,6 +933,12 @@ class DatabaseMigrator
                  $this->logger->info("Current shop_url data before force update", $currentData ?: []);
              } catch (Exception $e) {
                  $this->logger->warning("Could not read current shop_url data: " . $e->getMessage());
+             }
+
+             // Limpiar el dominio (remover puerto si existe)
+             if (strpos($targetDomain, ':') !== false) {
+                 $targetDomain = explode(':', $targetDomain)[0];
+                 $this->logger->info("Cleaned domain (removed port): " . $targetDomain);
              }
 
              // Update the shop_url table with improved SQL syntax
@@ -929,6 +962,9 @@ class DatabaseMigrator
                  }
                  
                  $this->logger->info("Force updated shop_url table - domain: {$targetDomain}, physical_uri: {$targetPath}");
+                 
+                 // También actualizar configuraciones de dominio
+                 $this->updateDomainConfiguration($targetDomain);
              } else {
                  $this->logger->error("Force update query failed to execute");
              }
@@ -987,22 +1023,23 @@ class DatabaseMigrator
 
          // Detect source URL from backup database - this is expensive, only do if needed
          if (empty($migrationConfig['old_url'])) {
-                         $this->logger->info("Attempting to extract source domain from backup (this may take a moment...)");
+            $this->logger->info("Attempting to extract source domain from backup (this may take a moment...)");
             $sourceDomain = $this->extractSourceDomainFromBackupPrivate($backupFile);
-             if ($sourceDomain) {
-                 // Assume https for backup URL (most common case)
-                 $migrationConfig['old_url'] = 'https://' . $sourceDomain;
-                 $this->logger->info("Auto-detected source URL from backup: " . $migrationConfig['old_url']);
-             } else {
-                 // If we can't detect source URL, we'll still force update the shop_url table
-                 $this->logger->warning("Could not extract source domain from backup - will force update shop_url");
-                 $migrationConfig['old_url'] = ''; // This will trigger force update
-             }
+            if ($sourceDomain) {
+                // Assume https for backup URL (most common case)
+                $migrationConfig['old_url'] = 'https://' . $sourceDomain;
+                $this->logger->info("Auto-detected source URL from backup: " . $migrationConfig['old_url']);
+            } else {
+                // If we can't detect source URL, we'll still force update the shop_url table
+                $this->logger->warning("Could not extract source domain from backup - will force update shop_url");
+                $migrationConfig['old_url'] = ''; // This will trigger force update
+            }
          }
 
          // SIEMPRE habilitar migración de URLs si tenemos una URL de destino
          if (!empty($migrationConfig['new_url'])) {
              $migrationConfig['migrate_urls'] = true;
+             $migrationConfig['force_shop_url_update'] = true; // FORZAR actualización de shop_url
              
              if (!empty($migrationConfig['old_url'])) {
                  $oldDomain = parse_url($migrationConfig['old_url'], PHP_URL_HOST);
@@ -1261,9 +1298,28 @@ class DatabaseMigrator
      {
          try {
              $this->logger->info("Updating configuration domains to {$domain}");
-             $sql = "UPDATE `" . _DB_PREFIX_ . "configuration` SET `value` = '" . pSQL($domain) . "' WHERE `name` IN ('PS_SHOP_DOMAIN', 'PS_SHOP_DOMAIN_SSL')";
-             $result = $this->db->execute($sql);
-             $this->logger->info("Configuration domain update executed with result: " . ($result ? 'SUCCESS' : 'FAILED'));
+             
+             // Actualizar configuraciones de dominio una por una para mejor control
+             $configKeys = ['PS_SHOP_DOMAIN', 'PS_SHOP_DOMAIN_SSL'];
+             
+             foreach ($configKeys as $configKey) {
+                 // Verificar si existe la configuración
+                 $existsQuery = "SELECT COUNT(*) FROM `" . _DB_PREFIX_ . "configuration` WHERE `name` = '" . pSQL($configKey) . "'";
+                 $exists = $this->db->getValue($existsQuery);
+                 
+                 if ($exists) {
+                     // Actualizar configuración existente
+                     $sql = "UPDATE `" . _DB_PREFIX_ . "configuration` SET `value` = '" . pSQL($domain) . "' WHERE `name` = '" . pSQL($configKey) . "'";
+                     $result = $this->db->execute($sql);
+                     $this->logger->info("Updated {$configKey} to {$domain}: " . ($result ? 'SUCCESS' : 'FAILED'));
+                 } else {
+                     // Insertar nueva configuración si no existe
+                     $sql = "INSERT INTO `" . _DB_PREFIX_ . "configuration` (`name`, `value`, `date_add`, `date_upd`) VALUES ('" . pSQL($configKey) . "', '" . pSQL($domain) . "', NOW(), NOW())";
+                     $result = $this->db->execute($sql);
+                     $this->logger->info("Inserted new {$configKey} with value {$domain}: " . ($result ? 'SUCCESS' : 'FAILED'));
+                 }
+             }
+             
          } catch (Exception $e) {
              $this->logger->error("Failed to update configuration domains: " . $e->getMessage());
          }
@@ -1866,5 +1922,44 @@ Options -Indexes
 ';
          
          file_put_contents($htaccessPath, $content);
+     }
+
+     /**
+      * Verify that the migration was successful
+      *
+      * @param array $migrationConfig
+      */
+     private function verifyMigrationSuccess(array $migrationConfig): void
+     {
+         $this->logger->info("Verifying migration success");
+         
+         try {
+             // Verificar tabla shop_url
+             $shopUrlTable = _DB_PREFIX_ . 'shop_url';
+             if ($this->tableExists($shopUrlTable)) {
+                 $shopUrlData = $this->db->getRow("SELECT domain, domain_ssl FROM `{$shopUrlTable}` LIMIT 1");
+                 if ($shopUrlData) {
+                     $this->logger->info("shop_url verification", [
+                         'domain' => $shopUrlData['domain'],
+                         'domain_ssl' => $shopUrlData['domain_ssl']
+                     ]);
+                 }
+             }
+             
+             // Verificar configuraciones de dominio
+             $configKeys = ['PS_SHOP_DOMAIN', 'PS_SHOP_DOMAIN_SSL'];
+             foreach ($configKeys as $configKey) {
+                 $configValue = $this->db->getValue("SELECT `value` FROM `" . _DB_PREFIX_ . "configuration` WHERE `name` = '" . pSQL($configKey) . "'");
+                 $this->logger->info("Configuration verification", [
+                     'key' => $configKey,
+                     'value' => $configValue
+                 ]);
+             }
+             
+             $this->logger->info("Migration verification completed");
+             
+         } catch (Exception $e) {
+             $this->logger->error("Migration verification failed: " . $e->getMessage());
+         }
      }
  }  
