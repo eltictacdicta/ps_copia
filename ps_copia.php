@@ -432,13 +432,39 @@ class Ps_copia extends Module
      */
     public function getBackupContainer(): ?\PrestaShop\Module\PsCopia\BackupContainer
     {
-        if (!isset($this->container) && defined('_PS_ROOT_DIR_') && defined('_PS_ADMIN_DIR_')) {
-            $this->container = new \PrestaShop\Module\PsCopia\BackupContainer(
-                _PS_ROOT_DIR_, 
-                _PS_ADMIN_DIR_, 
-                'ps_copia'
-            );
-            $this->container->initDirectories();
+        if (!isset($this->container) && defined('_PS_ROOT_DIR_')) {
+            $adminDir = null;
+            
+            // Try to get admin directory from constant
+            if (defined('_PS_ADMIN_DIR_')) {
+                $adminDir = _PS_ADMIN_DIR_;
+            } else {
+                // Auto-detect admin directory
+                $adminDirs = glob(_PS_ROOT_DIR_ . '/admin*');
+                if (!empty($adminDirs)) {
+                    // Find the real admin directory (not just 'admin')
+                    foreach ($adminDirs as $dir) {
+                        if (is_dir($dir) && basename($dir) !== 'admin' && file_exists($dir . '/index.php')) {
+                            $adminDir = $dir;
+                            break;
+                        }
+                    }
+                    
+                    // Fallback to first admin directory if no specific one found
+                    if (!$adminDir && !empty($adminDirs)) {
+                        $adminDir = $adminDirs[0];
+                    }
+                }
+            }
+            
+            if ($adminDir) {
+                $this->container = new \PrestaShop\Module\PsCopia\BackupContainer(
+                    _PS_ROOT_DIR_, 
+                    $adminDir, 
+                    'ps_copia'
+                );
+                $this->container->initDirectories();
+            }
         }
 
         return $this->container ?? null;

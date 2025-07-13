@@ -53,48 +53,886 @@ class RestoreService
         $this->backupContainer->validateBackupFile($backupInfo['database_file']);
         $this->backupContainer->validateBackupFile($backupInfo['files_file']);
 
-        $this->logger->info("Starting complete restoration with automatic migration: database + files");
-
-        // Automatic migration configuration for complete restore
-        $migrationConfig = [
-            'migrate_urls' => true,
-            'old_url' => '',
-            'new_url' => '',
-            'migrate_admin_dir' => false,
-            'old_admin_dir' => '',
-            'new_admin_dir' => '',
-            'preserve_db_config' => false,
-            'configurations' => []
-        ];
-
-        $this->logger->info("Applying automatic migration configuration for COMPLETE RESTORE", [
-            'migrate_urls' => $migrationConfig['migrate_urls'],
-            'migrate_admin_dir' => $migrationConfig['migrate_admin_dir'],
-            'preserve_db_config' => $migrationConfig['preserve_db_config'],
-            'note' => 'preserve_db_config=false means we restore ALL database from backup except URLs'
+        $this->logger->info("Starting complete restoration with cross-environment migration", [
+            'backup_name' => $backupName,
+            'database_file' => $backupInfo['database_file'],
+            'files_file' => $backupInfo['files_file']
         ]);
 
-        // Get full paths to backup files
+        // Create safety backup before starting
+        $safetyBackupName = $this->createSafetyBackup();
+        
+        try {
+            // Step 1: Analyze backup content to detect environment differences
+            $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
+            $dbFilePath = $backupDir . DIRECTORY_SEPARATOR . $backupInfo['database_file'];
+            $filesFilePath = $backupDir . DIRECTORY_SEPARATOR . $backupInfo['files_file'];
+            
+            $backupAnalysis = $this->analyzeBackupEnvironment($dbFilePath);
+            $currentEnvironment = $this->getCurrentEnvironment();
+            
+            $this->logger->info("Environment analysis completed", [
+                'backup_prefix' => $backupAnalysis['prefix'],
+                'backup_domain' => $backupAnalysis['domain'],
+                'current_prefix' => $currentEnvironment['prefix'],
+                'current_domain' => $currentEnvironment['domain'],
+                'requires_migration' => $this->requiresMigration($backupAnalysis, $currentEnvironment)
+            ]);
+            
+            // Step 2: Prepare migration configuration
+            $migrationConfig = [
+                'migrate_urls' => true,
+                'migrate_database' => true,
+                'migrate_files' => true,
+                'clean_destination' => true,
+                'preserve_db_config' => false, // We want to completely replace with backup data
+                'backup_analysis' => $backupAnalysis,
+                'current_environment' => $currentEnvironment,
+                'source_prefix' => $backupAnalysis['prefix'],
+                'target_prefix' => $currentEnvironment['prefix'],
+                'source_domain' => $backupAnalysis['domain'],
+                'target_domain' => $currentEnvironment['domain'],
+                'prefix_changed' => $backupAnalysis['prefix'] !== $currentEnvironment['prefix'],
+                'domain_changed' => $backupAnalysis['domain'] !== $currentEnvironment['domain']
+            ];
+            
+            // Step 3: Execute transactional database restoration
+            $this->executeTransactionalDatabaseRestore($dbFilePath, $migrationConfig);
+            
+            // Step 4: Execute secure file restoration
+            $this->executeSecureFileRestore($filesFilePath, $migrationConfig);
+            
+            // Step 5: Post-restoration verification and cleanup
+            $this->performPostRestorationVerification($migrationConfig);
+            
+            $this->logger->info("Complete backup restored successfully with cross-environment migration", [
+                'backup_name' => $backupName,
+                'migrations_applied' => [
+                    'prefix_migration' => $migrationConfig['prefix_changed'],
+                    'domain_migration' => $migrationConfig['domain_changed'],
+                    'database_migrated' => true,
+                    'files_migrated' => true
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            $this->logger->error("Complete restoration failed, attempting rollback", [
+                'backup_name' => $backupName,
+                'error' => $e->getMessage()
+            ]);
+            
+            // Attempt to restore from safety backup
+            if ($safetyBackupName) {
+                try {
+                    $this->restoreFromSafetyBackup($safetyBackupName);
+                    $this->logger->info("Successfully rolled back to safety backup");
+                } catch (\Exception $rollbackError) {
+                    $this->logger->error("Rollback also failed", [
+                        'rollback_error' => $rollbackError->getMessage()
+                    ]);
+                }
+            }
+            
+            throw new \Exception("Restoration failed: " . $e->getMessage() . ". System rolled back to previous state.");
+        }
+    }
+
+    /**
+     * Analyze backup environment to detect differences with current environment
+     *
+     * @param string $dbFilePath
+     * @return array
+     */
+    private function analyzeBackupEnvironment(string $dbFilePath): array
+    {
+        $this->logger->info("Analyzing backup environment");
+        
+        $analysis = [
+            'prefix' => 'ps_',
+            'domain' => '',
+            'mysql_version' => '',
+            'charset' => '',
+            'collation' => ''
+        ];
+        
+        try {
+            // Detect prefix from backup file
+            if (class_exists('PrestaShop\Module\PsCopia\Migration\DatabaseMigrator')) {
+                $dbMigrator = new \PrestaShop\Module\PsCopia\Migration\DatabaseMigrator($this->backupContainer, $this->logger);
+                $detectedPrefix = $dbMigrator->detectPrefixFromBackup($dbFilePath);
+                if ($detectedPrefix) {
+                    $analysis['prefix'] = $detectedPrefix;
+                }
+                
+                // Extract domain from backup
+                $detectedDomain = $dbMigrator->extractSourceDomainFromBackup($dbFilePath);
+                if ($detectedDomain) {
+                    $analysis['domain'] = $detectedDomain;
+                }
+            }
+            
+            // Analyze backup file for MySQL version and charset
+            $this->analyzeBackupFile($dbFilePath, $analysis);
+            
+        } catch (\Exception $e) {
+            $this->logger->warning("Could not fully analyze backup environment", [
+                'error' => $e->getMessage()
+            ]);
+        }
+        
+        return $analysis;
+    }
+
+    /**
+     * Get current environment information
+     *
+     * @return array
+     */
+    private function getCurrentEnvironment(): array
+    {
+        return [
+            'prefix' => _DB_PREFIX_,
+            'domain' => $this->getCurrentDomain(),
+            'mysql_version' => $this->getMysqlVersion(),
+            'charset' => 'utf8',
+            'collation' => 'utf8_general_ci'
+        ];
+    }
+
+    /**
+     * Check if migration is required
+     *
+     * @param array $backupAnalysis
+     * @param array $currentEnvironment
+     * @return bool
+     */
+    private function requiresMigration(array $backupAnalysis, array $currentEnvironment): bool
+    {
+        return $backupAnalysis['prefix'] !== $currentEnvironment['prefix'] ||
+               $backupAnalysis['domain'] !== $currentEnvironment['domain'];
+    }
+
+    /**
+     * Execute transactional database restore with migration
+     *
+     * @param string $dbFilePath
+     * @param array $migrationConfig
+     * @throws \Exception
+     */
+    private function executeTransactionalDatabaseRestore(string $dbFilePath, array $migrationConfig): void
+    {
+        $this->logger->info("Starting transactional database restore");
+        
+        // Start database transaction
+        $this->db = \Db::getInstance();
+        $this->db->execute("START TRANSACTION");
+        
+        try {
+            // Step 1: Clean destination database if required
+            if ($migrationConfig['clean_destination']) {
+                $this->cleanDestinationDatabase($migrationConfig['target_prefix']);
+            }
+            
+            // Step 2: Restore database with prefix adaptation if needed
+            if ($migrationConfig['prefix_changed']) {
+                $this->restoreWithPrefixAdaptation($dbFilePath, $migrationConfig);
+            } else {
+                $this->restoreDirectly($dbFilePath);
+            }
+            
+            // Step 3: Migrate URLs and domains if needed
+            if ($migrationConfig['domain_changed']) {
+                $this->migrateUrlsAndDomains($migrationConfig);
+            }
+            
+            // Step 4: Update environment-specific configurations
+            $this->updateEnvironmentConfigurations($migrationConfig);
+            
+            // Commit transaction
+            $this->db->execute("COMMIT");
+            
+            $this->logger->info("Transactional database restore completed successfully");
+            
+        } catch (\Exception $e) {
+            // Rollback transaction
+            $this->db->execute("ROLLBACK");
+            throw new \Exception("Database restore failed: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Execute secure file restore
+     *
+     * @param string $filesFilePath
+     * @param array $migrationConfig
+     * @throws \Exception
+     */
+    private function executeSecureFileRestore(string $filesFilePath, array $migrationConfig): void
+    {
+        $this->logger->info("Starting secure file restore");
+        
+        try {
+            // Use enhanced file restoration if available
+            if (class_exists('PrestaShop\Module\PsCopia\Services\SecureFileRestoreService')) {
+                $secureFileRestore = new \PrestaShop\Module\PsCopia\Services\SecureFileRestoreService(
+                    $this->backupContainer,
+                    $this->logger,
+                    $this->validationService
+                );
+                
+                $result = $secureFileRestore->restoreFilesSecurely($filesFilePath, [
+                    'scan_for_malware' => true,
+                    'validate_php_syntax' => true,
+                    'backup_critical_files' => true,
+                    'preserve_permissions' => true
+                ]);
+                
+                $this->logger->info("Secure file restore completed", $result);
+            } else {
+                // Fallback to standard file restoration
+                $this->restoreFilesFromPath($filesFilePath);
+            }
+            
+        } catch (\Exception $e) {
+            throw new \Exception("File restore failed: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Create safety backup before restoration
+     *
+     * @return string|null
+     */
+    private function createSafetyBackup(): ?string
+    {
+        try {
+            $this->logger->info("Creating safety backup before restoration");
+            
+            $timestamp = date('Y-m-d_H-i-s');
+            $safetyBackupName = 'safety_backup_' . $timestamp;
+            
+            // Create quick backup using existing service
+            if (class_exists('PrestaShop\Module\PsCopia\Services\BackupService')) {
+                $backupService = new \PrestaShop\Module\PsCopia\Services\BackupService(
+                    $this->backupContainer,
+                    $this->logger,
+                    $this->validationService
+                );
+                
+                $result = $backupService->createBackup('complete', $safetyBackupName);
+                
+                if (isset($result['complete']['backup_name'])) {
+                    $this->logger->info("Safety backup created successfully", [
+                        'backup_name' => $result['complete']['backup_name']
+                    ]);
+                    return $result['complete']['backup_name'];
+                }
+            }
+            
+        } catch (\Exception $e) {
+            $this->logger->warning("Could not create safety backup", [
+                'error' => $e->getMessage()
+            ]);
+        }
+        
+        return null;
+    }
+
+    /**
+     * Analyze backup file for MySQL version and charset
+     *
+     * @param string $dbFilePath
+     * @param array &$analysis
+     */
+    private function analyzeBackupFile(string $dbFilePath, array &$analysis): void
+    {
+        try {
+            $isGzipped = pathinfo($dbFilePath, PATHINFO_EXTENSION) === 'gz';
+            
+            if ($isGzipped) {
+                $handle = gzopen($dbFilePath, 'r');
+                $readFunction = 'gzgets';
+            } else {
+                $handle = fopen($dbFilePath, 'r');
+                $readFunction = 'fgets';
+            }
+            
+            if (!$handle) {
+                return;
+            }
+            
+            $linesRead = 0;
+            while (($line = $readFunction($handle)) !== false && $linesRead < 50) {
+                // Look for MySQL version
+                if (preg_match('/-- MySQL dump \d+\.\d+.*Distrib (\d+\.\d+\.\d+)/', $line, $matches)) {
+                    $analysis['mysql_version'] = $matches[1];
+                }
+                
+                // Look for charset and collation
+                if (preg_match('/DEFAULT CHARSET=(\w+)/', $line, $matches)) {
+                    $analysis['charset'] = $matches[1];
+                }
+                
+                if (preg_match('/COLLATE=(\w+)/', $line, $matches)) {
+                    $analysis['collation'] = $matches[1];
+                }
+                
+                $linesRead++;
+            }
+            
+            if ($isGzipped) {
+                gzclose($handle);
+            } else {
+                fclose($handle);
+            }
+            
+        } catch (\Exception $e) {
+            $this->logger->warning("Could not analyze backup file", [
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Get current domain
+     *
+     * @return string
+     */
+    private function getCurrentDomain(): string
+    {
+        // Try multiple methods to get current domain
+        $domain = '';
+        
+        // Method 1: From server variables
+        if (!empty($_SERVER['HTTP_HOST'])) {
+            $domain = $_SERVER['HTTP_HOST'];
+        } elseif (!empty($_SERVER['SERVER_NAME'])) {
+            $domain = $_SERVER['SERVER_NAME'];
+        }
+        
+        // Method 2: From PrestaShop configuration
+        if (empty($domain) && class_exists('Configuration')) {
+            try {
+                $domain = \Configuration::get('PS_SHOP_DOMAIN');
+            } catch (\Exception $e) {
+                // Ignore errors
+            }
+        }
+        
+        // Method 3: From database if available
+        if (empty($domain)) {
+            try {
+                $db = \Db::getInstance();
+                $result = $db->getRow("SELECT `domain` FROM `" . _DB_PREFIX_ . "shop_url` WHERE `domain` != '' LIMIT 1");
+                if ($result && !empty($result['domain'])) {
+                    $domain = $result['domain'];
+                }
+            } catch (\Exception $e) {
+                // Ignore errors
+            }
+        }
+        
+        // Fallback
+        if (empty($domain)) {
+            $domain = 'localhost';
+        }
+        
+        // Clean domain (remove port if present)
+        if (strpos($domain, ':') !== false) {
+            $domain = explode(':', $domain)[0];
+        }
+        
+        return $domain;
+    }
+
+    /**
+     * Get MySQL version
+     *
+     * @return string
+     */
+    private function getMysqlVersion(): string
+    {
+        try {
+            $db = \Db::getInstance();
+            $result = $db->getRow("SELECT VERSION() as version");
+            return $result['version'] ?? '';
+        } catch (\Exception $e) {
+            return '';
+        }
+    }
+
+    /**
+     * Clean destination database
+     *
+     * @param string $prefix
+     * @throws \Exception
+     */
+    private function cleanDestinationDatabase(string $prefix): void
+    {
+        $this->logger->info("Cleaning destination database", ['prefix' => $prefix]);
+        
+        try {
+            $db = \Db::getInstance();
+            
+            // Get all tables with the specified prefix
+            $sql = "SHOW TABLES LIKE '" . $prefix . "%'";
+            $tables = $db->executeS($sql);
+            
+            if (!empty($tables)) {
+                // Disable foreign key checks
+                $db->execute("SET FOREIGN_KEY_CHECKS = 0");
+                
+                foreach ($tables as $table) {
+                    $tableName = reset($table);
+                    $db->execute("DROP TABLE IF EXISTS `" . $tableName . "`");
+                }
+                
+                // Re-enable foreign key checks
+                $db->execute("SET FOREIGN_KEY_CHECKS = 1");
+                
+                $this->logger->info("Cleaned destination database", [
+                    'tables_dropped' => count($tables)
+                ]);
+            }
+            
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to clean destination database: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Restore with prefix adaptation
+     *
+     * @param string $dbFilePath
+     * @param array $migrationConfig
+     * @throws \Exception
+     */
+    private function restoreWithPrefixAdaptation(string $dbFilePath, array $migrationConfig): void
+    {
+        $this->logger->info("Restoring database with prefix adaptation", [
+            'source_prefix' => $migrationConfig['source_prefix'],
+            'target_prefix' => $migrationConfig['target_prefix']
+        ]);
+        
+        // Create adapted backup file
+        $tempFile = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ps_copia_adapted_' . time() . '.sql';
+        
+        try {
+            $this->createAdaptedBackupFile($dbFilePath, $tempFile, $migrationConfig);
+            $this->restoreDirectly($tempFile);
+            
+            // Clean up temporary file
+            @unlink($tempFile);
+            
+        } catch (\Exception $e) {
+            @unlink($tempFile);
+            throw $e;
+        }
+    }
+
+    /**
+     * Restore directly without adaptation
+     *
+     * @param string $dbFilePath
+     * @throws \Exception
+     */
+    private function restoreDirectly(string $dbFilePath): void
+    {
+        $this->logger->info("Restoring database directly");
+        
+        $credentials = $this->getCurrentDbCredentials();
+        $isGzipped = pathinfo($dbFilePath, PATHINFO_EXTENSION) === 'gz';
+        
+        if ($isGzipped) {
+            $command = sprintf(
+                'zcat %s | mysql --host=%s --user=%s --password=%s %s',
+                escapeshellarg($dbFilePath),
+                escapeshellarg($credentials['host']),
+                escapeshellarg($credentials['user']),
+                escapeshellarg($credentials['password']),
+                escapeshellarg($credentials['name'])
+            );
+        } else {
+            $command = sprintf(
+                'mysql --host=%s --user=%s --password=%s %s < %s',
+                escapeshellarg($credentials['host']),
+                escapeshellarg($credentials['user']),
+                escapeshellarg($credentials['password']),
+                escapeshellarg($credentials['name']),
+                escapeshellarg($dbFilePath)
+            );
+        }
+
+        exec($command . ' 2>&1', $output, $returnVar);
+
+        if ($returnVar !== 0) {
+            throw new \Exception("Database restoration failed: " . implode("\n", $output));
+        }
+
+        $this->logger->info("Database restored successfully");
+    }
+
+    /**
+     * Create adapted backup file with prefix changes
+     *
+     * @param string $sourceFile
+     * @param string $targetFile
+     * @param array $migrationConfig
+     * @throws \Exception
+     */
+    private function createAdaptedBackupFile(string $sourceFile, string $targetFile, array $migrationConfig): void
+    {
+        $this->logger->info("Creating adapted backup file");
+        
+        $sourcePrefix = $migrationConfig['source_prefix'];
+        $targetPrefix = $migrationConfig['target_prefix'];
+        
+        $isGzipped = pathinfo($sourceFile, PATHINFO_EXTENSION) === 'gz';
+        
+        if ($isGzipped) {
+            $sourceHandle = gzopen($sourceFile, 'r');
+            $readFunction = 'gzgets';
+        } else {
+            $sourceHandle = fopen($sourceFile, 'r');
+            $readFunction = 'fgets';
+        }
+        
+        $targetHandle = fopen($targetFile, 'w');
+        
+        if (!$sourceHandle || !$targetHandle) {
+            throw new \Exception("Could not open files for prefix adaptation");
+        }
+        
+        try {
+            while (($line = $readFunction($sourceHandle)) !== false) {
+                // Replace table prefixes in various SQL statements
+                $adaptedLine = str_replace('`' . $sourcePrefix, '`' . $targetPrefix, $line);
+                $adaptedLine = str_replace('INTO ' . $sourcePrefix, 'INTO ' . $targetPrefix, $adaptedLine);
+                $adaptedLine = str_replace('TABLE ' . $sourcePrefix, 'TABLE ' . $targetPrefix, $adaptedLine);
+                $adaptedLine = str_replace('FROM ' . $sourcePrefix, 'FROM ' . $targetPrefix, $adaptedLine);
+                $adaptedLine = str_replace('UPDATE ' . $sourcePrefix, 'UPDATE ' . $targetPrefix, $adaptedLine);
+                $adaptedLine = str_replace('DELETE FROM ' . $sourcePrefix, 'DELETE FROM ' . $targetPrefix, $adaptedLine);
+                
+                fwrite($targetHandle, $adaptedLine);
+            }
+            
+        } finally {
+            if ($isGzipped) {
+                gzclose($sourceHandle);
+            } else {
+                fclose($sourceHandle);
+            }
+            fclose($targetHandle);
+        }
+        
+        $this->logger->info("Adapted backup file created successfully");
+    }
+
+    /**
+     * Migrate URLs and domains
+     *
+     * @param array $migrationConfig
+     * @throws \Exception
+     */
+    private function migrateUrlsAndDomains(array $migrationConfig): void
+    {
+        $this->logger->info("Migrating URLs and domains");
+        
+        try {
+            // Use enhanced URL migrator if available
+            if (class_exists('PrestaShop\Module\PsCopia\Migration\UrlMigrator')) {
+                $urlMigrator = new \PrestaShop\Module\PsCopia\Migration\UrlMigrator(
+                    $this->backupContainer,
+                    $this->logger
+                );
+                
+                $urlMigrator->migrateAllUrls($migrationConfig);
+            } else {
+                // Fallback to basic URL migration
+                $this->basicUrlMigration($migrationConfig);
+            }
+            
+        } catch (\Exception $e) {
+            throw new \Exception("URL migration failed: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Basic URL migration fallback
+     *
+     * @param array $migrationConfig
+     */
+    private function basicUrlMigration(array $migrationConfig): void
+    {
+        $db = \Db::getInstance();
+        $targetDomain = $migrationConfig['target_domain'];
+        $prefix = $migrationConfig['target_prefix'];
+        
+        // Update shop_url table
+        $sql = "UPDATE `{$prefix}shop_url` SET 
+                `domain` = '" . pSQL($targetDomain) . "',
+                `domain_ssl` = '" . pSQL($targetDomain) . "'";
+        $db->execute($sql);
+        
+        // Update configuration
+        $domainConfigs = [
+            'PS_SHOP_DOMAIN' => $targetDomain,
+            'PS_SHOP_DOMAIN_SSL' => $targetDomain
+        ];
+        
+        foreach ($domainConfigs as $configKey => $configValue) {
+            $sql = "UPDATE `{$prefix}configuration` 
+                    SET `value` = '" . pSQL($configValue) . "' 
+                    WHERE `name` = '" . pSQL($configKey) . "'";
+            $db->execute($sql);
+        }
+    }
+
+    /**
+     * Update environment-specific configurations
+     *
+     * @param array $migrationConfig
+     */
+    private function updateEnvironmentConfigurations(array $migrationConfig): void
+    {
+        $this->logger->info("Updating environment-specific configurations");
+        
+        $db = \Db::getInstance();
+        $prefix = $migrationConfig['target_prefix'];
+        
+        // Disable problematic modules that might cause issues
+        $problematicModules = [
+            'ps_facetedsearch',
+            'ps_searchbar',
+            'ps_categoryproducts',
+            'blockreassurance'
+        ];
+        
+        foreach ($problematicModules as $moduleName) {
+            try {
+                $sql = "UPDATE `{$prefix}module` SET `active` = 0 WHERE `name` = '" . pSQL($moduleName) . "'";
+                $db->execute($sql);
+            } catch (\Exception $e) {
+                // Ignore errors for modules that don't exist
+            }
+        }
+        
+        // Clear cache-related configurations
+        $cacheConfigs = [
+            'PS_SMARTY_CACHE' => '0',
+            'PS_SMARTY_FORCE_COMPILE' => '1',
+            'PS_CSS_THEME_CACHE' => '0',
+            'PS_JS_THEME_CACHE' => '0'
+        ];
+        
+        foreach ($cacheConfigs as $configKey => $configValue) {
+            try {
+                $sql = "UPDATE `{$prefix}configuration` 
+                        SET `value` = '" . pSQL($configValue) . "' 
+                        WHERE `name` = '" . pSQL($configKey) . "'";
+                $db->execute($sql);
+            } catch (\Exception $e) {
+                // Ignore errors
+            }
+        }
+    }
+
+    /**
+     * Perform post-restoration verification
+     *
+     * @param array $migrationConfig
+     * @throws \Exception
+     */
+    private function performPostRestorationVerification(array $migrationConfig): void
+    {
+        $this->logger->info("Performing post-restoration verification");
+        
+        $db = \Db::getInstance();
+        $prefix = $migrationConfig['target_prefix'];
+        
+        // Verify essential tables exist
+        $essentialTables = [
+            'shop_url',
+            'configuration',
+            'module',
+            'customer',
+            'product'
+        ];
+        
+        foreach ($essentialTables as $table) {
+            $sql = "SHOW TABLES LIKE '" . $prefix . $table . "'";
+            $result = $db->executeS($sql);
+            
+            if (empty($result)) {
+                throw new \Exception("Essential table missing after restoration: " . $prefix . $table);
+            }
+        }
+        
+        // Verify domain configuration
+        $sql = "SELECT `domain` FROM `{$prefix}shop_url` LIMIT 1";
+        $result = $db->getRow($sql);
+        
+        if (empty($result) || $result['domain'] !== $migrationConfig['target_domain']) {
+            $this->logger->warning("Domain verification failed", [
+                'expected' => $migrationConfig['target_domain'],
+                'actual' => $result['domain'] ?? 'null'
+            ]);
+        }
+        
+        $this->logger->info("Post-restoration verification completed successfully");
+    }
+
+    /**
+     * Restore from safety backup
+     *
+     * @param string $safetyBackupName
+     * @throws \Exception
+     */
+    private function restoreFromSafetyBackup(string $safetyBackupName): void
+    {
+        $this->logger->info("Restoring from safety backup", [
+            'backup_name' => $safetyBackupName
+        ]);
+        
+        // Use simple restoration for safety backup (no migration needed)
+        $metadata = $this->getBackupMetadata();
+        
+        if (!isset($metadata[$safetyBackupName])) {
+            throw new \Exception("Safety backup not found: " . $safetyBackupName);
+        }
+        
+        $backupInfo = $metadata[$safetyBackupName];
+        
+        // Restore database
         $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
         $dbFilePath = $backupDir . DIRECTORY_SEPARATOR . $backupInfo['database_file'];
+        $this->restoreDirectly($dbFilePath);
+        
+        // Restore files
         $filesFilePath = $backupDir . DIRECTORY_SEPARATOR . $backupInfo['files_file'];
+        $this->restoreFilesFromPath($filesFilePath);
+        
+        $this->logger->info("Safety backup restored successfully");
+    }
 
-        // Apply database migration
-        $this->logger->info("Restoring database with automatic migration from: " . $backupInfo['database_file']);
+    /**
+     * Main restore method that handles different backup types
+     * This method is called by the AJAX controller
+     *
+     * @param string $backupName
+     * @param string $backupType
+     * @return string
+     * @throws \Exception
+     */
+    public function restoreBackup(string $backupName, string $backupType): string
+    {
+        $this->logger->info("Starting restore process", [
+            'backup_name' => $backupName,
+            'backup_type' => $backupType
+        ]);
+
+        try {
+            switch ($backupType) {
+                case 'complete':
+                    $this->restoreCompleteBackup($backupName);
+                    return "Backup completo restaurado exitosamente: " . $backupName;
+                    
+                case 'database':
+                    $this->restoreDatabase($backupName);
+                    return "Base de datos restaurada exitosamente desde: " . $backupName;
+                    
+                case 'files':
+                    $this->restoreFiles($backupName);
+                    return "Archivos restaurados exitosamente desde: " . $backupName;
+                    
+                default:
+                    throw new \Exception("Tipo de backup no soportado: " . $backupType);
+            }
+        } catch (\Exception $e) {
+            $this->logger->error("Restore failed", [
+                'backup_name' => $backupName,
+                'backup_type' => $backupType,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Restore database only from complete backup
+     *
+     * @param string $backupName
+     * @return string
+     * @throws \Exception
+     */
+    public function restoreDatabaseOnly(string $backupName): string
+    {
+        $metadata = $this->getBackupMetadata();
+        
+        if (!isset($metadata[$backupName])) {
+            throw new \Exception("Backup metadata not found for: " . $backupName);
+        }
+
+        $backupInfo = $metadata[$backupName];
+        
+        if (!isset($backupInfo['database_file'])) {
+            throw new \Exception("Database file not found in backup: " . $backupName);
+        }
+
+        $this->logger->info("Restoring database only from complete backup: " . $backupName);
+        
+        // Restore database with migration
+        $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
+        $dbFilePath = $backupDir . DIRECTORY_SEPARATOR . $backupInfo['database_file'];
         
         if (class_exists('PrestaShop\Module\PsCopia\Migration\DatabaseMigrator')) {
+            $migrationConfig = [
+                'migrate_urls' => true,
+                'preserve_db_config' => false
+            ];
+            
             $dbMigrator = new DatabaseMigrator($this->backupContainer, $this->logger);
             $dbMigrator->migrateDatabase($dbFilePath, $migrationConfig);
         } else {
-            $this->logger->warning("DatabaseMigrator class not found, falling back to standard restore");
             $this->restoreDatabase($backupInfo['database_file']);
         }
 
-        // Restore files
-        $this->logger->info("Restoring files with preserved admin directory from: " . $backupInfo['files_file']);
+        return "Base de datos restaurada exitosamente desde backup completo: " . $backupName;
+    }
+
+    /**
+     * Restore files only from complete backup
+     *
+     * @param string $backupName
+     * @return string
+     * @throws \Exception
+     */
+    public function restoreFilesOnly(string $backupName): string
+    {
+        $metadata = $this->getBackupMetadata();
+        
+        if (!isset($metadata[$backupName])) {
+            throw new \Exception("Backup metadata not found for: " . $backupName);
+        }
+
+        $backupInfo = $metadata[$backupName];
+        
+        if (!isset($backupInfo['files_file'])) {
+            throw new \Exception("Files file not found in backup: " . $backupName);
+        }
+
+        $this->logger->info("Restoring files only from complete backup: " . $backupName);
+        
+        // Restore files with migration
+        $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
+        $filesFilePath = $backupDir . DIRECTORY_SEPARATOR . $backupInfo['files_file'];
         
         if (class_exists('PrestaShop\Module\PsCopia\Migration\FilesMigrator')) {
             try {
+                $migrationConfig = [
+                    'migrate_admin_dir' => false
+                ];
+                
                 $filesMigrator = new FilesMigrator($this->backupContainer, $this->logger);
                 $filesMigrator->migrateFiles($filesFilePath, $migrationConfig);
             } catch (\Exception $e) {
@@ -102,11 +940,10 @@ class RestoreService
                 $this->restoreFiles($backupInfo['files_file']);
             }
         } else {
-            $this->logger->warning("FilesMigrator class not found, falling back to standard restore");
             $this->restoreFiles($backupInfo['files_file']);
         }
 
-        $this->logger->info("Complete backup restored successfully with automatic migration applied");
+        return "Archivos restaurados exitosamente desde backup completo: " . $backupName;
     }
 
     /**

@@ -236,6 +236,20 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                 'trace' => $e->getTraceAsString()
             ]);
             $this->responseHelper->ajaxError($e->getMessage());
+        } catch (Error $e) {
+            // Catch PHP Fatal Errors
+            $this->logger->error("Ajax Controller Fatal Error: " . $e->getMessage(), [
+                'action' => $action,
+                'trace' => $e->getTraceAsString()
+            ]);
+            $this->responseHelper->ajaxError('Fatal error occurred: ' . $e->getMessage());
+        } catch (Throwable $e) {
+            // Catch any other throwable
+            $this->logger->error("Ajax Controller Throwable: " . $e->getMessage(), [
+                'action' => $action,
+                'trace' => $e->getTraceAsString()
+            ]);
+            $this->responseHelper->ajaxError('Unexpected error occurred: ' . $e->getMessage());
         }
 
         return true;
@@ -265,15 +279,43 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         $backupName = Tools::getValue('backup_name');
         $backupType = Tools::getValue('backup_type', 'complete');
         
+        // Log the incoming request
+        $this->logger->info("AJAX Restore Request", [
+            'backup_name' => $backupName,
+            'backup_type' => $backupType,
+            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
+            'remote_addr' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+        ]);
+        
         if (empty($backupName)) {
+            $this->logger->error("Restore request missing backup name");
             $this->responseHelper->ajaxError("Backup name is required");
             return;
         }
 
         try {
+            $this->logger->info("Starting restore process via AJAX", [
+                'backup_name' => $backupName,
+                'backup_type' => $backupType
+            ]);
+            
             $message = $this->restoreService->restoreBackup($backupName, $backupType);
+            
+            $this->logger->info("Restore completed successfully via AJAX", [
+                'backup_name' => $backupName,
+                'backup_type' => $backupType,
+                'message' => $message
+            ]);
+            
             $this->responseHelper->ajaxSuccess($message);
         } catch (Exception $e) {
+            $this->logger->error("Restore failed via AJAX", [
+                'backup_name' => $backupName,
+                'backup_type' => $backupType,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             $this->responseHelper->ajaxError($e->getMessage());
         }
     }

@@ -23,8 +23,21 @@ class ResponseHelper
             'data' => $data
         ];
         
+        // Clean any existing output
+        while (ob_get_level()) {
+            ob_end_clean();
+        }
+        
         header('Content-Type: application/json');
         echo json_encode($response);
+        
+        // Ensure response is sent
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        } else {
+            flush();
+        }
+        
         exit;
     }
 
@@ -43,8 +56,21 @@ class ResponseHelper
             'data' => $data
         ];
         
+        // Clean any existing output
+        while (ob_get_level()) {
+            ob_end_clean();
+        }
+        
         header('Content-Type: application/json');
         echo json_encode($response);
+        
+        // Ensure response is sent
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        } else {
+            flush();
+        }
+        
         exit;
     }
 
