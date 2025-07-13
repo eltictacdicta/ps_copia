@@ -560,10 +560,16 @@ $(document).ready(function() {
 {literal}
             },
             success: function(response) {
+                console.log('AJAX response:', response);
                 if (response && response.success) {
-                    displayBackupsList(response.data.backups);
+                    if (response.data && response.data.backups) {
+                        displayBackupsList(response.data.backups);
+                    } else {
+                        console.error('Invalid response structure:', response);
+                        $('#backups-list').html('<div class="alert alert-danger">Error: Estructura de respuesta inválida del servidor.</div>');
+                    }
                 } else {
-                    $('#backups-list').html('<div class="alert alert-warning">Error al cargar la lista de backups: ' + (response.error || 'Error desconocido') + '</div>');
+                    $('#backups-list').html('<div class="alert alert-warning">Error al cargar la lista de backups: ' + (response.error || response.message || 'Error desconocido') + '</div>');
                 }
             },
             error: function() {
@@ -573,6 +579,13 @@ $(document).ready(function() {
     }
 
     function displayBackupsList(backups) {
+        // Validar que backups sea un array válido
+        if (!Array.isArray(backups)) {
+            console.error('displayBackupsList: backups is not an array:', backups);
+            $('#backups-list').html('<div class="alert alert-danger"><i class="icon-exclamation-triangle"></i> Error: Los datos de backups recibidos no son válidos.</div>');
+            return;
+        }
+        
         if (backups.length === 0) {
             $('#backups-list').html('<div class="alert alert-info"><i class="icon-info-circle"></i> No hay backups disponibles. Crea tu primer backup completo usando el botón de arriba.</div>');
             return;
