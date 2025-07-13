@@ -483,7 +483,8 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
     {
         try {
             $result = $this->fileManagerService->scanServerUploads();
-            $this->responseHelper->ajaxSuccess($result['message'], $result['data']);
+            $message = 'Escaneo completado exitosamente. Archivos encontrados: ' . $result['count'] . ', válidos: ' . $result['valid_count'];
+            $this->responseHelper->ajaxSuccess($message, $result);
         } catch (Exception $e) {
             $this->responseHelper->ajaxError($e->getMessage());
         }

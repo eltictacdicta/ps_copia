@@ -534,9 +534,18 @@ class FileManagerService
             // For server imports, always use standard extraction
             $this->extractBackupStandard($zip, $newBackupName, $originalFilename, $backupInfo, $zipPath);
             
+            // Mecanismo de respaldo adicional para asegurar la eliminación del archivo original
+            $this->ensureServerUploadFileIsDeleted($zipPath, $originalFilename);
+            
+            // Eliminar el archivo ZIP copiado después de la extracción exitosa
+            $this->deleteBackupZipAfterExtraction($newZipPath, $newBackupName);
+            
             return [
-                'backup_name' => $newBackupName,
-                'imported_from' => $originalFilename
+                'message' => 'Backup importado correctamente desde el servidor',
+                'data' => [
+                    'backup_name' => $newBackupName,
+                    'imported_from' => $originalFilename
+                ]
             ];
 
         } catch (\Exception $e) {
@@ -765,33 +774,57 @@ class FileManagerService
     private function deleteServerUploadFileAfterImport(string $zipPath, string $originalFilename): void
     {
         try {
-            $uploadsPath = $this->getServerUploadsPath();
-            
-            // Verify that the file is safe to delete
-            if (!$this->validationService->validateServerUploadFile($zipPath, $originalFilename, $uploadsPath)) {
-                $this->logger->warning("Cannot delete server upload file - validation failed", [
+            // Verificar que el archivo existe
+            if (!file_exists($zipPath)) {
+                $this->logger->warning("Cannot delete server upload file - file not found", [
                     'filename' => $originalFilename,
                     'path' => $zipPath
                 ]);
                 return;
             }
             
-            // Delete the original ZIP file
+            // Verificar que es un archivo ZIP para seguridad básica
+            if (strtolower(pathinfo($originalFilename, PATHINFO_EXTENSION)) !== 'zip') {
+                $this->logger->warning("Cannot delete server upload file - not a ZIP file", [
+                    'filename' => $originalFilename,
+                    'path' => $zipPath
+                ]);
+                return;
+            }
+            
+            // Verificar que está dentro del directorio de uploads (seguridad básica)
+            $uploadsPath = $this->getServerUploadsPath();
+            $realZipPath = realpath($zipPath);
+            $realUploadsPath = realpath($uploadsPath);
+            
+            if (!$realZipPath || !$realUploadsPath || strpos($realZipPath, $realUploadsPath) !== 0) {
+                $this->logger->warning("Cannot delete server upload file - path validation failed", [
+                    'filename' => $originalFilename,
+                    'path' => $zipPath,
+                    'uploads_path' => $uploadsPath
+                ]);
+                return;
+            }
+            
+            // Intentar eliminar el archivo
             if (@unlink($zipPath)) {
                 $this->logger->info("Server upload file deleted automatically after successful import", [
                     'filename' => $originalFilename,
                     'path' => $zipPath
                 ]);
             } else {
+                $error = error_get_last();
                 $this->logger->warning("Failed to delete server upload file after import", [
                     'filename' => $originalFilename,
-                    'path' => $zipPath
+                    'path' => $zipPath,
+                    'error' => $error ? $error['message'] : 'Unknown error'
                 ]);
             }
             
         } catch (\Exception $e) {
             $this->logger->error("Error deleting server upload file after import", [
                 'filename' => $originalFilename,
+                'path' => $zipPath,
                 'error' => $e->getMessage()
             ]);
         }
@@ -958,5 +991,120 @@ class FileManagerService
         }
 
         return rmdir($directory);
+    }
+
+    /**
+     * Mecanismo de respaldo para asegurar que el archivo ZIP se elimine después del import
+     *
+     * @param string $zipPath
+     * @param string $originalFilename
+     */
+    private function ensureServerUploadFileIsDeleted(string $zipPath, string $originalFilename): void
+    {
+        try {
+            // Verificar si el archivo aún existe
+            if (!file_exists($zipPath)) {
+                $this->logger->debug("Server upload file already deleted or not found", [
+                    'filename' => $originalFilename
+                ]);
+                return;
+            }
+            
+            // Intentar eliminarlo directamente (mecanismo de respaldo)
+            if (@unlink($zipPath)) {
+                $this->logger->info("Server upload file deleted by backup mechanism", [
+                    'filename' => $originalFilename,
+                    'path' => $zipPath
+                ]);
+            } else {
+                $this->logger->warning("Backup deletion mechanism also failed", [
+                    'filename' => $originalFilename,
+                    'path' => $zipPath
+                ]);
+                
+                // Último intento con clearstatcache
+                clearstatcache();
+                if (file_exists($zipPath) && @unlink($zipPath)) {
+                    $this->logger->info("Server upload file deleted after cache clear", [
+                        'filename' => $originalFilename,
+                        'path' => $zipPath
+                    ]);
+                } else {
+                    $this->logger->error("All deletion attempts failed for server upload file", [
+                        'filename' => $originalFilename,
+                        'path' => $zipPath,
+                        'file_exists' => file_exists($zipPath),
+                        'is_writable' => is_writable(dirname($zipPath))
+                    ]);
+                }
+            }
+            
+        } catch (\Exception $e) {
+            $this->logger->error("Exception in backup deletion mechanism", [
+                'filename' => $originalFilename,
+                'path' => $zipPath,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Eliminar el archivo ZIP copiado después de extraer su contenido
+     *
+     * @param string $newZipPath
+     * @param string $newBackupName
+     */
+    private function deleteBackupZipAfterExtraction(string $newZipPath, string $newBackupName): void
+    {
+        try {
+            // Verificar que el archivo existe
+            if (!file_exists($newZipPath)) {
+                $this->logger->debug("Backup ZIP file already deleted or not found", [
+                    'backup_name' => $newBackupName,
+                    'zip_path' => $newZipPath
+                ]);
+                return;
+            }
+            
+            // Obtener el tamaño del archivo antes de eliminarlo
+            $fileSize = filesize($newZipPath) ?: 0;
+            
+            // Eliminar el archivo ZIP copiado ya que ya se extrajo su contenido
+            if (@unlink($newZipPath)) {
+                $this->logger->info("Backup ZIP file deleted after successful extraction", [
+                    'backup_name' => $newBackupName,
+                    'zip_path' => basename($newZipPath),
+                    'size_freed' => ResponseHelper::formatBytes($fileSize)
+                ]);
+            } else {
+                $this->logger->warning("Failed to delete backup ZIP file after extraction", [
+                    'backup_name' => $newBackupName,
+                    'zip_path' => $newZipPath
+                ]);
+                
+                // Intento adicional con clearstatcache
+                clearstatcache();
+                if (file_exists($newZipPath) && @unlink($newZipPath)) {
+                    $this->logger->info("Backup ZIP file deleted after cache clear", [
+                        'backup_name' => $newBackupName,
+                        'zip_path' => basename($newZipPath)
+                    ]);
+                } else {
+                    $this->logger->error("All attempts to delete backup ZIP file failed", [
+                        'backup_name' => $newBackupName,
+                        'zip_path' => $newZipPath,
+                        'file_exists' => file_exists($newZipPath),
+                        'is_writable' => is_writable(dirname($newZipPath))
+                    ]);
+                }
+            }
+            
+        } catch (\Exception $e) {
+            $this->logger->error("Exception while deleting backup ZIP file", [
+                'backup_name' => $newBackupName,
+                'zip_path' => $newZipPath,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 } 
