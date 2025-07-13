@@ -54,21 +54,21 @@ class DatabaseMigrator
      */
     public function detectPrefixFromBackup(string $backupFile): ?string
     {
-        $content = file_get_contents($backupFile);
-        if (!$content) {
+        $isGzipped = pathinfo($backupFile, PATHINFO_EXTENSION) === 'gz';
+        $handle = $isGzipped ? gzopen($backupFile, 'r') : fopen($backupFile, 'r');
+        if (!$handle) {
             return null;
         }
-        
-        // Look for CREATE TABLE statements
-        if (preg_match('/CREATE TABLE `([^`]+_)[^`]*`/', $content, $matches)) {
-            return $matches[1];
+
+        while (($line = $isGzipped ? gzgets($handle) : fgets($handle)) !== false) {
+            if (preg_match('/CREATE TABLE `([^`]+_)[^`]*`/', $line, $matches) ||
+                preg_match('/INSERT INTO `([^`]+_)[^`]*`/', $line, $matches)) {
+                $isGzipped ? gzclose($handle) : fclose($handle);
+                return $matches[1];
+            }
         }
-        
-        // Look for INSERT INTO statements
-        if (preg_match('/INSERT INTO `([^`]+_)[^`]*`/', $content, $matches)) {
-            return $matches[1];
-        }
-        
+
+        $isGzipped ? gzclose($handle) : fclose($handle);
         return null;
     }
 
@@ -787,7 +787,7 @@ class DatabaseMigrator
             $domain = $_SERVER['SERVER_NAME'];
             $this->logger->info("Found domain from SERVER_NAME (priority 2): " . $domain);
         }
-        // Priority 3: Try environment variables or common alternatives
+        // Priority 3: Try to get from environment variables or common alternatives
         elseif (!empty(getenv('HTTP_HOST'))) {
             $domain = getenv('HTTP_HOST');
             $this->logger->info("Found domain from HTTP_HOST env var (priority 3): " . $domain);
@@ -1937,13 +1937,19 @@ Options -Indexes
              // Verificar tabla shop_url
              $shopUrlTable = _DB_PREFIX_ . 'shop_url';
              if ($this->tableExists($shopUrlTable)) {
-                 $shopUrlData = $this->db->getRow("SELECT domain, domain_ssl FROM `{$shopUrlTable}` LIMIT 1");
+                 $query = "SELECT domain, domain_ssl FROM `{$shopUrlTable}` LIMIT 1";
+                 $this->logger->info("Executing verification query: " . $query);
+                 $shopUrlData = $this->db->getRow($query);
                  if ($shopUrlData) {
                      $this->logger->info("shop_url verification", [
                          'domain' => $shopUrlData['domain'],
                          'domain_ssl' => $shopUrlData['domain_ssl']
                      ]);
+                 } else {
+                     $this->logger->warning("No data found in shop_url table");
                  }
+             } else {
+                 $this->logger->warning("shop_url table does not exist with prefix " . _DB_PREFIX_);
              }
              
              // Verificar configuraciones de dominio
