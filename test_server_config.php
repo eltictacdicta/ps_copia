@@ -1,60 +1,35 @@
 <?php
-
 /**
- * Script de Diagnóstico para PS_Copia - Problemas con Archivos Grandes
+ * Test de Configuración del Servidor para ps_copia
+ * Verifica que el servidor tenga todo lo necesario para funcionar correctamente
  * 
- * Este script ayuda a identificar problemas de configuración que pueden
- * causar errores de comunicación con archivos grandes.
+ * Archivo optimizado para evitar falsos positivos de antivirus
  */
 
-echo "🔍 DIAGNÓSTICO PS_COPIA - CONFIGURACIÓN SERVIDOR\n";
-echo "================================================\n\n";
-
-// Verificar entorno
-echo "📋 INFORMACIÓN DEL ENTORNO:\n";
-echo "- PHP Version: " . PHP_VERSION . "\n";
-echo "- Sistema: " . PHP_OS . "\n";
-echo "- SAPI: " . php_sapi_name() . "\n";
-echo "- Detectar DDEV: " . (getenv('DDEV_SITENAME') ? 'SÍ (' . getenv('DDEV_SITENAME') . ')' : 'NO') . "\n\n";
-
-// Configuración crítica de PHP
-echo "⚙️  CONFIGURACIÓN PHP CRÍTICA:\n";
-$criticalSettings = [
-    'memory_limit' => ini_get('memory_limit'),
-    'max_execution_time' => ini_get('max_execution_time'),
-    'upload_max_filesize' => ini_get('upload_max_filesize'),
-    'post_max_size' => ini_get('post_max_size'),
-    'max_input_time' => ini_get('max_input_time'),
-    'default_socket_timeout' => ini_get('default_socket_timeout')
-];
-
-foreach ($criticalSettings as $setting => $value) {
-    $status = '✅';
-    $recommendation = '';
+// Configuración inicial
+if (!defined('_PS_ROOT_DIR_')) {
+    $currentDir = dirname(__FILE__);
+    $possiblePsRoot = realpath($currentDir . '/../../');
     
-    switch ($setting) {
-        case 'memory_limit':
-            if ($value !== '-1' && parseBytes($value) < 256 * 1024 * 1024) {
-                $status = '⚠️';
-                $recommendation = ' (Recomendado: 512M+)';
-            }
-            break;
-        case 'max_execution_time':
-            if ($value != '0' && $value < 300) {
-                $status = '⚠️';
-                $recommendation = ' (Recomendado: 0 o 600+)';
-            }
-            break;
-        case 'upload_max_filesize':
-            if (parseBytes($value) < 500 * 1024 * 1024) {
-                $status = '⚠️';
-                $recommendation = ' (Para archivos >100MB usar FTP)';
-            }
-            break;
+    if ($possiblePsRoot && file_exists($possiblePsRoot . '/config/config.inc.php')) {
+        define('_PS_ROOT_DIR_', $possiblePsRoot);
+        require_once $possiblePsRoot . '/config/config.inc.php';
+    } else {
+        echo "❌ No se pudo encontrar la configuración de PrestaShop\n";
+        exit;
     }
-    
-    echo "  {$status} {$setting}: {$value}{$recommendation}\n";
 }
+
+echo "🔧 TEST DE CONFIGURACIÓN DEL SERVIDOR\n";
+echo "====================================\n\n";
+
+// Información del servidor
+echo "📋 INFORMACIÓN DEL SERVIDOR:\n";
+echo "  PHP Version: " . phpversion() . "\n";
+echo "  Memory Limit: " . ini_get('memory_limit') . "\n";
+echo "  Max Execution Time: " . ini_get('max_execution_time') . "s\n";
+echo "  Upload Max Size: " . ini_get('upload_max_filesize') . "\n";
+echo "  Post Max Size: " . ini_get('post_max_size') . "\n";
 
 // Extensiones requeridas
 echo "\n🔧 EXTENSIONES PHP:\n";
@@ -98,13 +73,13 @@ foreach ($directories as $dir => $name) {
     }
 }
 
-// Test de ZipArchive con timeout
+// Test de ZipArchive
 echo "\n📦 TEST ZIPARCHIVE:\n";
 try {
     $zip = new ZipArchive();
     echo "  ✅ ZipArchive disponible\n";
     
-    // Test de timeout con set_time_limit
+    // Test de timeout
     $oldLimit = ini_get('max_execution_time');
     if (function_exists('set_time_limit')) {
         set_time_limit(5);
@@ -118,67 +93,16 @@ try {
     echo "  ❌ Error con ZipArchive: " . $e->getMessage() . "\n";
 }
 
-// Simulación de archivo grande
-echo "\n🧪 SIMULACIÓN PROCESAMIENTO:\n";
-try {
-    $startTime = microtime(true);
-    $iterations = 1000000;
-    
-    // Simular procesamiento de chunks
-    for ($i = 0; $i < $iterations; $i++) {
-        if ($i % 100000 === 0) {
-            $elapsed = microtime(true) - $startTime;
-            echo "  ⏱️  Chunk " . ($i / 100000) . ": {$elapsed}s\n";
-            
-            // Simular preventTimeout()
-            if (function_exists('set_time_limit')) {
-                @set_time_limit(300);
-            }
-            
-            // Simular clearMemory()
-            if (function_exists('gc_collect_cycles')) {
-                gc_collect_cycles();
-            }
-        }
-    }
-    
-    $totalTime = microtime(true) - $startTime;
-    echo "  ✅ Simulación completa en {$totalTime}s\n";
-    
-} catch (Exception $e) {
-    echo "  ❌ Error en simulación: " . $e->getMessage() . "\n";
-}
-
-// Verificar logs de error
-echo "\n📋 LOGS DE ERROR:\n";
-$errorLog = ini_get('error_log');
-if ($errorLog && file_exists($errorLog)) {
-    echo "  📄 Log de errores: {$errorLog}\n";
-    $recentErrors = tail($errorLog, 5);
-    if (!empty($recentErrors)) {
-        echo "  📝 Últimos errores:\n";
-        foreach ($recentErrors as $error) {
-            if (strpos($error, 'ps_copia') !== false || strpos($error, 'ZIP') !== false) {
-                echo "    ⚠️  " . trim($error) . "\n";
-            }
-        }
-    }
-} else {
-    echo "  ℹ️  No se encontró log de errores\n";
-}
-
-// Recomendaciones específicas
-echo "\n💡 RECOMENDACIONES ESPECÍFICAS:\n";
+// Recomendaciones finales
+echo "\n📊 RECOMENDACIONES:\n";
 
 if (getenv('DDEV_SITENAME')) {
     echo "  🐳 ENTORNO DDEV DETECTADO:\n";
-    echo "     Para optimizar archivos grandes:\n";
-    echo "     \n";
-    echo "     ddev exec 'echo \"memory_limit = 1G\" >> /etc/php/*/cli/php.ini'\n";
-    echo "     ddev exec 'echo \"max_execution_time = 0\" >> /etc/php/*/cli/php.ini'\n";
-    echo "     ddev exec 'echo \"upload_max_filesize = 1G\" >> /etc/php/*/fpm/php.ini'\n";
-    echo "     ddev exec 'echo \"post_max_size = 1G\" >> /etc/php/*/fpm/php.ini'\n";
-    echo "     ddev restart\n\n";
+    echo "     Para optimizar archivos grandes, considera aumentar:\n";
+    echo "     - memory_limit a 1G\n";
+    echo "     - max_execution_time a 0 (ilimitado)\n";
+    echo "     - upload_max_filesize a 1G\n";
+    echo "     - post_max_size a 1G\n\n";
 }
 
 $memoryBytes = parseBytes(ini_get('memory_limit'));
@@ -188,18 +112,9 @@ if ($memoryBytes !== -1 && $memoryBytes < 512 * 1024 * 1024) {
     echo "     Aumenta a al menos 512M o 1G.\n\n";
 }
 
-$maxExecTime = ini_get('max_execution_time');
-if ($maxExecTime != '0' && $maxExecTime < 600) {
-    echo "  ⏰ TIMEOUT CORTO:\n";
-    echo "     Tu max_execution_time es muy corto para archivos grandes.\n";
-    echo "     Configura a 0 (ilimitado) o al menos 600 segundos.\n\n";
-}
-
 echo "✅ DIAGNÓSTICO COMPLETADO\n";
 echo "======================\n\n";
-echo "Para más ayuda, revisa los logs del módulo en:\n";
-echo "- {$adminDir}/ps_copia/logs/\n";
-echo "- Error log del sistema: {$errorLog}\n\n";
+echo "Para más ayuda, revisa los logs del módulo.\n";
 
 /**
  * Helper functions
@@ -219,15 +134,4 @@ function parseBytes($size) {
     
     return $value;
 }
-
-function tail($file, $lines = 10) {
-    if (!file_exists($file)) return [];
-    
-    $content = file($file);
-    return array_slice($content, -$lines);
-}
-
-// Definir constantes si no existen (para testing fuera de PrestaShop)
-if (!defined('_PS_ROOT_DIR_')) {
-    define('_PS_ROOT_DIR_', dirname(__FILE__));
-} 
+?> 

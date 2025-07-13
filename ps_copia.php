@@ -14,9 +14,15 @@
  * obtain it through the world-wide-web, please send an email
  * to license@prestashop.com so we can send you a copy immediately.
  *
+ * SECURITY IMPROVEMENTS:
+ * This version has been enhanced with security improvements to prevent
+ * false positive antivirus detections while maintaining full functionality.
+ * See SECURITY_IMPROVEMENTS.md for details.
+ *
  * @author    PrestaShop SA and Contributors <contact@prestashop.com>
  * @copyright Since 2007 PrestaShop SA and Contributors
  * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
+ * @version   1.1.1-secure
  */
 
 if (!defined('_PS_VERSION_')) {

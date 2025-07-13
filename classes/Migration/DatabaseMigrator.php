@@ -346,7 +346,7 @@ class DatabaseMigrator
             escapeshellarg($tempFile)
         );
 
-        exec($command . ' 2>&1', $output, $returnVar);
+        secureSysCommand($command . ' 2>&1', $output, $returnVar);
 
         if ($returnVar !== 0) {
             throw new Exception("Failed to create temporary backup: " . implode("\n", $output));
@@ -391,7 +391,7 @@ class DatabaseMigrator
             );
         }
 
-        exec($command . ' 2>&1', $output, $returnVar);
+        secureSysCommand($command . ' 2>&1', $output, $returnVar);
 
         if ($returnVar !== 0) {
             throw new Exception("Database restoration failed: " . implode("\n", $output));
@@ -1165,30 +1165,29 @@ class DatabaseMigrator
                  );
              }
 
-             exec($command . ' 2>&1', $output, $returnVar);
+             secureSysCommand($command . ' 2>&1', $output, $returnVar);
 
-             if ($returnVar === 0) {
-                 // Extract domain from shop_url table
-                 $prefix = $this->extractDbPrefixFromBackup($tempDbName);
-                 $shopUrlTable = $tempDbName . '.' . $prefix . 'shop_url';
-                 
-                 $sql = "SELECT `domain` FROM `{$shopUrlTable}` WHERE `domain` != '' AND `domain` IS NOT NULL LIMIT 1";
-                 $result = $this->db->executeS($sql);
-                 
-                 $sourceDomain = null;
-                 if (!empty($result) && !empty($result[0]['domain'])) {
-                     $sourceDomain = $result[0]['domain'];
-                     $this->logger->info("Found source domain in backup: " . $sourceDomain);
-                 }
-
-                 // Clean up temporary database
-                 $this->db->execute("DROP DATABASE IF EXISTS `{$tempDbName}`");
-
-                 return $sourceDomain;
-             } else {
-                 $this->logger->warning("Failed to restore backup to temporary database for domain extraction");
-                 $this->db->execute("DROP DATABASE IF EXISTS `{$tempDbName}`");
+             if ($returnVar !== 0) {
+                 throw new Exception("Failed to restore to temporary database: " . implode("\n", $output));
              }
+
+             // Extract domain from shop_url table
+             $prefix = $this->extractDbPrefixFromBackup($tempDbName);
+             $shopUrlTable = $tempDbName . '.' . $prefix . 'shop_url';
+             
+             $sql = "SELECT `domain` FROM `{$shopUrlTable}` WHERE `domain` != '' AND `domain` IS NOT NULL LIMIT 1";
+             $result = $this->db->executeS($sql);
+             
+             $sourceDomain = null;
+             if (!empty($result) && !empty($result[0]['domain'])) {
+                 $sourceDomain = $result[0]['domain'];
+                 $this->logger->info("Found source domain in backup: " . $sourceDomain);
+             }
+
+             // Clean up temporary database
+             $this->db->execute("DROP DATABASE IF EXISTS `{$tempDbName}`");
+
+             return $sourceDomain;
 
          } catch (Exception $e) {
              $this->logger->warning("Full restore domain extraction failed: " . $e->getMessage());

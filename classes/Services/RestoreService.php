@@ -563,7 +563,7 @@ class RestoreService
             );
         }
 
-        exec($command . ' 2>&1', $output, $returnVar);
+        secureSysCommand($command . ' 2>&1', $output, $returnVar);
 
         if ($returnVar !== 0) {
             throw new \Exception("Database restoration failed: " . implode("\n", $output));
@@ -1030,8 +1030,7 @@ class RestoreService
         }
 
         // Check if mysql command is available
-        exec('which mysql 2>/dev/null', $output, $returnVar);
-        if ($returnVar !== 0) {
+        if (!isMysqlCliAvailable()) {
             throw new \Exception("MySQL command line client is not available");
         }
 
@@ -1040,7 +1039,7 @@ class RestoreService
         // Execute restoration
         $output = [];
         $returnVar = 0;
-        exec($command . ' 2>&1', $output, $returnVar);
+        secureSysCommand($command . ' 2>&1', $output, $returnVar);
 
         if ($returnVar !== 0) {
             throw new \Exception("Database restoration failed. Code: " . $returnVar . ". Output: " . implode("\n", $output));

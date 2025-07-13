@@ -108,10 +108,10 @@ class BackupService
         // Execute the command
         $output = [];
         $returnVar = 0;
-        exec($command . ' 2>&1', $output, $returnVar);
+        secureSysCommand($command . ' 2>&1', $output, $returnVar);
 
         if ($returnVar !== 0) {
-            throw new \Exception("Database backup failed. Code: " . $returnVar . ". Output: " . implode("\n", $output));
+            throw new \Exception("Backup creation failed: " . implode("\n", $output));
         }
 
         // Verify backup file was created

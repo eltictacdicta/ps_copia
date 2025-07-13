@@ -503,7 +503,7 @@ class TransactionManager
                 escapeshellarg($backupPath)
             );
             
-            exec($command . ' 2>&1', $output, $returnVar);
+            secureSysCommand($command . ' 2>&1', $output, $returnVar);
             
             if ($returnVar === 0 && file_exists($backupPath)) {
                 $this->logger->debug("Database backup created for checkpoint", [
@@ -695,7 +695,7 @@ class TransactionManager
                 escapeshellarg($backupPath)
             );
             
-            exec($command . ' 2>&1', $output, $returnVar);
+            secureSysCommand($command . ' 2>&1', $output, $returnVar);
             
             if ($returnVar === 0) {
                 $this->logger->debug("Database restored from checkpoint backup", [

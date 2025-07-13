@@ -1,0 +1,78 @@
+# Seguridad adicional para ps_copia
+# Deny access to sensitive files
+
+<Files "*.php">
+    Order deny,allow
+    Deny from all
+    Allow from 127.0.0.1
+    Allow from ::1
+</Files>
+
+# Permit access to main module files
+<Files "ps_copia.php">
+    Order allow,deny
+    Allow from all
+</Files>
+
+<Files "index.php">
+    Order allow,deny
+    Allow from all
+</Files>
+
+# Deny access to test files
+<Files "test_*.php">
+    Order deny,allow
+    Deny from all
+</Files>
+
+# Deny access to backup files
+<Files "*.sql">
+    Order deny,allow
+    Deny from all
+</Files>
+
+<Files "*.zip">
+    Order deny,allow
+    Deny from all
+</Files>
+
+# Deny access to log files
+<Files "*.log">
+    Order deny,allow
+    Deny from all
+</Files>
+
+# Deny access to configuration files
+<Files "*.yml">
+    Order deny,allow
+    Deny from all
+</Files>
+
+<Files "*.yaml">
+    Order deny,allow
+    Deny from all
+</Files>
+
+<Files "*.json">
+    Order deny,allow
+    Deny from all
+</Files>
+
+# Disable server signature
+ServerSignature Off
+
+# Disable directory browsing
+Options -Indexes
+
+# Deny access to hidden files
+<Files ".*">
+    Order deny,allow
+    Deny from all
+</Files>
+
+# Additional security headers
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options nosniff
+    Header always set X-Frame-Options DENY
+    Header always set X-XSS-Protection "1; mode=block"
+</IfModule> 
