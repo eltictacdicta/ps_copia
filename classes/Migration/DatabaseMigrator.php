@@ -251,6 +251,9 @@ class DatabaseMigrator
                 $this->updateShopUrlTable();
             }
 
+            // Verificar estado de base de datos antes de migración de URLs
+            $this->validateDatabaseState();
+            
             // SIEMPRE forzar actualización de shop_url independientemente de la configuración anterior
             $this->logger->info("FORCING shop_url table update to ensure proper domain configuration");
             $this->forceUpdateShopUrl($migrationConfig);
@@ -650,10 +653,27 @@ class DatabaseMigrator
     private function tableExists(string $tableName): bool
     {
         try {
+            // Use both SHOW TABLES and DESCRIBE to be extra sure
             $sql = "SHOW TABLES LIKE '" . pSQL($tableName) . "'";
             $result = $this->db->executeS($sql);
-            return !empty($result);
+            
+            if (!empty($result)) {
+                // Double-check by trying to describe the table
+                try {
+                    $describeResult = $this->db->executeS("DESCRIBE `" . pSQL($tableName) . "`");
+                    $exists = !empty($describeResult);
+                    $this->logger->debug("Table {$tableName} exists check: " . ($exists ? 'YES' : 'NO'));
+                    return $exists;
+                } catch (Exception $e) {
+                    // If DESCRIBE fails but SHOW TABLES succeeded, table might be corrupted
+                    $this->logger->warning("Table {$tableName} found in SHOW TABLES but DESCRIBE failed: " . $e->getMessage());
+                    return false;
+                }
+            }
+            
+            return false;
         } catch (Exception $e) {
+            $this->logger->warning("Error checking if table {$tableName} exists: " . $e->getMessage());
             return false;
         }
     }
@@ -751,7 +771,10 @@ class DatabaseMigrator
                 // Also update configuration keys PS_SHOP_DOMAIN and PS_SHOP_DOMAIN_SSL
                 $this->updateDomainConfiguration($currentDomain);
             } else {
-                $this->logger->warning("shop_url table does not exist");
+                $this->logger->error("shop_url table does not exist - this is a critical error");
+                
+                // Try to create a basic shop_url entry if table exists but has no data
+                $this->createBasicShopUrlEntry($currentDomain);
             }
         } catch (Exception $e) {
             $this->logger->error("Failed to AGGRESSIVELY update shop_url table: " . $e->getMessage());
@@ -1968,36 +1991,150 @@ Options -Indexes
      */
     private function getShopUrlTableName(): ?string
     {
-        // Get the correct current prefix
+        // Strategy 1: Get the correct current prefix
         $currentPrefix = $this->getCurrentPrefix();
         $this->logger->info("Using current prefix for shop_url table: " . $currentPrefix);
         
-        // Try current prefix first
+        // Strategy 2: Try current prefix first
         $currentPrefixTable = $currentPrefix . 'shop_url';
         if ($this->tableExists($currentPrefixTable)) {
             $this->logger->info("Found shop_url table with current prefix: " . $currentPrefixTable);
             return $currentPrefixTable;
         }
         
-        // If current prefix doesn't work, search for any shop_url table
+        // Strategy 3: If current prefix doesn't work, search for any shop_url table
         try {
             $sql = "SHOW TABLES LIKE '%shop_url'";
             $result = $this->db->executeS($sql);
             
             if (!empty($result)) {
+                // Log all found tables for debugging
+                $allTables = array_map('current', $result);
+                $this->logger->info("Found shop_url tables: " . implode(', ', $allTables));
+                
+                // Prefer the first one found
                 $tableName = reset($result[0]);
-                $this->logger->info("Found alternative shop_url table: " . $tableName);
+                $this->logger->info("Using shop_url table: " . $tableName);
                 return $tableName;
             }
         } catch (Exception $e) {
             $this->logger->error("Error finding shop_url table: " . $e->getMessage());
         }
         
-        $this->logger->error("No shop_url table found with any prefix");
+        // Strategy 4: Try common prefixes as fallback
+        $commonPrefixes = ['ps_', 'myshop_', 'prestashop_', ''];
+        foreach ($commonPrefixes as $prefix) {
+            $testTable = $prefix . 'shop_url';
+            if ($this->tableExists($testTable)) {
+                $this->logger->info("Found shop_url table with fallback prefix: " . $testTable);
+                return $testTable;
+            }
+        }
+        
+        $this->logger->error("No shop_url table found with any prefix or strategy");
         return null;
     }
 
 
+
+    /**
+     * Create basic shop_url entry if table exists but is empty
+     *
+     * @param string $domain
+     */
+    private function createBasicShopUrlEntry(string $domain): void
+    {
+        try {
+            $this->logger->info("Attempting to create basic shop_url entry for domain: {$domain}");
+            
+            // Find any shop_url table
+            $sql = "SHOW TABLES LIKE '%shop_url'";
+            $result = $this->db->executeS($sql);
+            
+            if (!empty($result)) {
+                $tableName = reset($result[0]);
+                $this->logger->info("Found shop_url table: {$tableName}");
+                
+                // Check if table has any entries
+                $count = $this->db->getValue("SELECT COUNT(*) FROM `{$tableName}`");
+                
+                if ($count == 0) {
+                    // Table exists but is empty, create a basic entry
+                    $insertSql = "INSERT INTO `{$tableName}` 
+                                  (`id_shop`, `domain`, `domain_ssl`, `physical_uri`, `virtual_uri`, `main`, `active`) 
+                                  VALUES (1, '" . pSQL($domain) . "', '" . pSQL($domain) . "', '/', '', 1, 1)";
+                    
+                    $result = $this->db->execute($insertSql);
+                    
+                    if ($result) {
+                        $this->logger->info("Created basic shop_url entry successfully");
+                    } else {
+                        $this->logger->error("Failed to create basic shop_url entry");
+                    }
+                } else {
+                    $this->logger->info("shop_url table has {$count} entries, not creating new entry");
+                }
+            } else {
+                $this->logger->error("No shop_url table found to create entry in");
+            }
+            
+        } catch (Exception $e) {
+            $this->logger->error("Error creating basic shop_url entry: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Validate database state before URL migration
+     *
+     * @throws Exception
+     */
+    private function validateDatabaseState(): void
+    {
+        $this->logger->info("Validating database state before URL migration");
+        
+        try {
+            // Check if any shop_url table exists
+            $sql = "SHOW TABLES LIKE '%shop_url'";
+            $result = $this->db->executeS($sql);
+            
+            if (empty($result)) {
+                throw new Exception("No shop_url table found in database - database may not be restored correctly");
+            }
+            
+            $allTables = array_map('current', $result);
+            $this->logger->info("Found shop_url tables in database: " . implode(', ', $allTables));
+            
+            // Verify current prefix tables exist
+            $currentPrefix = $this->getCurrentPrefix();
+            $essentialTables = ['configuration', 'shop'];
+            
+            foreach ($essentialTables as $table) {
+                $fullTableName = $currentPrefix . $table;
+                if (!$this->tableExists($fullTableName)) {
+                    $this->logger->warning("Essential table missing: {$fullTableName}");
+                }
+            }
+            
+            // Check configuration table accessibility
+            $configTable = $currentPrefix . 'configuration';
+            if ($this->tableExists($configTable)) {
+                $count = $this->db->getValue("SELECT COUNT(*) FROM `{$configTable}`");
+                $this->logger->info("Configuration table {$configTable} has {$count} entries");
+                
+                if ($count == 0) {
+                    $this->logger->warning("Configuration table exists but is empty");
+                }
+            } else {
+                $this->logger->error("Configuration table {$configTable} does not exist");
+            }
+            
+            $this->logger->info("Database state validation completed");
+            
+        } catch (Exception $e) {
+            $this->logger->error("Database state validation failed: " . $e->getMessage());
+            throw $e;
+        }
+    }
 
     /**
      * Debug logger that writes to a separate file
