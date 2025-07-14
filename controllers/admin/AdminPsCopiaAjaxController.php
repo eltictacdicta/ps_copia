@@ -124,6 +124,12 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         if (file_exists($autoloadPath)) {
             require_once $autoloadPath;
         }
+        
+        // Load functions.php file that contains secureSysCommand()
+        $functionsPath = __DIR__ . '/../../functions.php';
+        if (file_exists($functionsPath)) {
+            require_once $functionsPath;
+        }
 
         // Manually load critical classes if not available
         $classesToLoad = [

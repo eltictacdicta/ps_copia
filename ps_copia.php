@@ -57,6 +57,12 @@ class Ps_copia extends Module
 
         // Load autoloader before using module classes
         $this->initAutoloaderIfCompliant();
+        
+        // Load functions.php file that contains secureSysCommand()
+        $functionsPath = _PS_MODULE_DIR_ . '/ps_copia/functions.php';
+        if (file_exists($functionsPath)) {
+            require_once $functionsPath;
+        }
 
         $this->displayName = $this->trans('Backup Assistant', [], 'Modules.Pscopia.Admin');
         $this->description = $this->trans('The Backup Assistant module helps you create backups and restore your PrestaShop store. With just a few clicks, you can create and restore backups with confidence.', [], 'Modules.Pscopia.Admin');
