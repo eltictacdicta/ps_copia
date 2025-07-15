@@ -1976,7 +1976,7 @@ Options -Indexes
         
         // Strategy 1: Try current prefix first (most likely)
         $currentPrefixTable = $currentPrefix . 'shop_url';
-        if ($this->tableExists($currentPrefixTable)) {
+        if ($this->tableExistsWithValidation($currentPrefixTable)) {
             $this->logger->info("Found shop_url table with current prefix: " . $currentPrefixTable);
             return $currentPrefixTable;
         }
@@ -1987,10 +1987,14 @@ Options -Indexes
             $result = $this->db->executeS($sql);
             
             if (!empty($result)) {
-                $foundTable = reset($result);
-                $tableName = reset($foundTable);
-                $this->logger->info("Found shop_url table in database: " . $tableName);
-                return $tableName;
+                foreach ($result as $tableRow) {
+                    $tableName = reset($tableRow);
+                    // Validate the table name before returning it
+                    if ($this->isValidTableName($tableName) && $this->tableExistsWithValidation($tableName)) {
+                        $this->logger->info("Found validated shop_url table in database: " . $tableName);
+                        return $tableName;
+                    }
+                }
             }
         } catch (Exception $e) {
             $this->logger->warning("Failed to search for shop_url tables: " . $e->getMessage());
@@ -2000,17 +2004,93 @@ Options -Indexes
         $commonPrefixes = ['ps_', 'myshop_', 'prestashop_', ''];
         foreach ($commonPrefixes as $prefix) {
             $testTable = $prefix . 'shop_url';
-            if ($this->tableExists($testTable)) {
+            if ($this->isValidTableName($testTable) && $this->tableExistsWithValidation($testTable)) {
                 $this->logger->info("Found shop_url table with fallback prefix: " . $testTable);
                 return $testTable;
             }
         }
         
         // Strategy 4: If no shop_url table exists, it means restoration hasn't happened yet
-        // Return the expected table name with current prefix
+        // Return the expected table name with current prefix ONLY if the prefix is valid
         $expectedTable = $currentPrefix . 'shop_url';
-        $this->logger->warning("No shop_url table found, returning expected table name: " . $expectedTable);
-        return $expectedTable;
+        if ($this->isValidTableName($expectedTable)) {
+            $this->logger->warning("No shop_url table found, returning expected table name: " . $expectedTable);
+            return $expectedTable;
+        } else {
+            $this->logger->error("Current prefix produces invalid table name: " . $expectedTable);
+            return null;
+        }
+    }
+    
+    /**
+     * Validate that a table name is properly formatted and safe to use in SQL queries
+     *
+     * @param string $tableName
+     * @return bool
+     */
+    private function isValidTableName(string $tableName): bool
+    {
+        // Check for empty or too long names
+        if (empty($tableName) || strlen($tableName) > 64) {
+            return false;
+        }
+        
+        // Check for valid MySQL table name characters (alphanumeric, underscore, dollar)
+        if (!preg_match('/^[a-zA-Z0-9_$]+$/', $tableName)) {
+            return false;
+        }
+        
+        // Must not start with a number
+        if (preg_match('/^[0-9]/', $tableName)) {
+            return false;
+        }
+        
+        // Must contain 'shop_url' to be a valid shop_url table
+        if (strpos($tableName, 'shop_url') === false) {
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Enhanced table existence check with additional validation
+     *
+     * @param string $tableName
+     * @return bool
+     */
+    private function tableExistsWithValidation(string $tableName): bool
+    {
+        try {
+            // First validate the table name format
+            if (!$this->isValidTableName($tableName)) {
+                $this->logger->warning("Invalid table name format: " . $tableName);
+                return false;
+            }
+            
+            // Use both SHOW TABLES and DESCRIBE to be extra sure
+            $sql = "SHOW TABLES LIKE '" . pSQL($tableName) . "'";
+            $result = $this->db->executeS($sql);
+            
+            if (!empty($result)) {
+                // Double-check by trying to describe the table
+                try {
+                    $describeResult = $this->db->executeS("DESCRIBE `" . pSQL($tableName) . "`");
+                    $exists = !empty($describeResult);
+                    $this->logger->debug("Table {$tableName} validation: " . ($exists ? 'EXISTS and VALID' : 'EXISTS but INVALID'));
+                    return $exists;
+                } catch (Exception $e) {
+                    // If DESCRIBE fails but SHOW TABLES succeeded, table might be corrupted
+                    $this->logger->warning("Table {$tableName} found in SHOW TABLES but DESCRIBE failed: " . $e->getMessage());
+                    return false;
+                }
+            }
+            
+            return false;
+        } catch (Exception $e) {
+            $this->logger->warning("Error checking if table {$tableName} exists: " . $e->getMessage());
+            return false;
+        }
     }
 
     /**
@@ -2165,7 +2245,7 @@ Options -Indexes
     }
 
     /**
-     * Enhanced safe database query with testing mode
+     * Safely execute database query with proper error handling
      *
      * @param string $sql
      * @param string $method
@@ -2181,6 +2261,12 @@ Options -Indexes
         }
         
         try {
+            // Validate SQL before execution to prevent syntax errors
+            if (!$this->validateSqlQuery($sql)) {
+                $this->debugLog("DB QUERY VALIDATION FAILED", ['sql' => $sql]);
+                throw new Exception("Invalid SQL query: " . $sql);
+            }
+            
             switch ($method) {
                 case 'execute':
                     $result = $this->db->execute($sql);
@@ -2191,14 +2277,16 @@ Options -Indexes
                     $this->debugLog("DB EXECUTES SUCCESS", ['sql' => $sql, 'count' => is_array($result) ? count($result) : 0]);
                     return $result;
                 case 'getRow':
-                    // Remove LIMIT 1 from queries as getRow() already returns only one row
-                    $cleanSql = preg_replace('/\s+LIMIT\s+1\s*$/i', '', $sql);
+                    // More robust LIMIT 1 removal for getRow()
+                    $cleanSql = $this->cleanLimitFromSql($sql);
                     $result = $this->db->getRow($cleanSql);
                     $this->debugLog("DB GETROW SUCCESS", ['original_sql' => $sql, 'clean_sql' => $cleanSql, 'result' => $result]);
                     return $result;
                 case 'getValue':
-                    $result = $this->db->getValue($sql);
-                    $this->debugLog("DB GETVALUE SUCCESS", ['sql' => $sql, 'result' => $result]);
+                    // For getValue, we can also clean LIMIT 1 as it only returns one value
+                    $cleanSql = $this->cleanLimitFromSql($sql);
+                    $result = $this->db->getValue($cleanSql);
+                    $this->debugLog("DB GETVALUE SUCCESS", ['original_sql' => $sql, 'clean_sql' => $cleanSql, 'result' => $result]);
                     return $result;
                 default:
                     $this->debugLog("DB UNKNOWN METHOD", ['sql' => $sql, 'method' => $method]);
@@ -2211,6 +2299,74 @@ Options -Indexes
             }
             return false;
         }
+    }
+    
+    /**
+     * Validate SQL query for basic syntax errors
+     *
+     * @param string $sql
+     * @return bool
+     */
+    private function validateSqlQuery(string $sql): bool
+    {
+        // Basic validation - check for empty or obviously malformed queries
+        $sql = trim($sql);
+        
+        if (empty($sql)) {
+            return false;
+        }
+        
+        // Check for basic SQL structure
+        if (!preg_match('/^(SELECT|UPDATE|INSERT|DELETE|SHOW|DESCRIBE|CREATE|DROP|ALTER)\s+/i', $sql)) {
+            return false;
+        }
+        
+        // Check for unbalanced quotes
+        $singleQuotes = substr_count($sql, "'") - substr_count($sql, "\\'");
+        if ($singleQuotes % 2 !== 0) {
+            return false;
+        }
+        
+        // Check for unbalanced backticks
+        $backticks = substr_count($sql, '`');
+        if ($backticks % 2 !== 0) {
+            return false;
+        }
+        
+        // Check for table name placeholder that wasn't replaced
+        if (strpos($sql, '{$') !== false || strpos($sql, '${') !== false) {
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * More robust method to clean LIMIT 1 from SQL queries
+     *
+     * @param string $sql
+     * @return string
+     */
+    private function cleanLimitFromSql(string $sql): string
+    {
+        // Multiple patterns to catch different LIMIT 1 variations
+        $patterns = [
+            '/\s+LIMIT\s+1\s*$/i',           // Standard: LIMIT 1 at end
+            '/\s+LIMIT\s+1\s*;?\s*$/i',      // With optional semicolon
+            '/\s+LIMIT\s+1\s+/i',            // LIMIT 1 with trailing space
+        ];
+        
+        $cleanSql = $sql;
+        foreach ($patterns as $pattern) {
+            $cleanSql = preg_replace($pattern, '', $cleanSql);
+        }
+        
+        // If preg_replace failed for some reason, fall back to original
+        if ($cleanSql === null) {
+            $cleanSql = $sql;
+        }
+        
+        return trim($cleanSql);
     }
 
     /**
