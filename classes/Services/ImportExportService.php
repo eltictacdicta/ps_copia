@@ -240,68 +240,38 @@ class ImportExportService
             $dbFile = $discoveredFiles['database'];
             $filesFile = $discoveredFiles['files'];
             
-            // Perform database migration
-            $this->logger->info("Performing database migration");
+            // STEP 1: Restore files from backup
+            $this->logger->info("Step 1: Restoring files from backup");
+            $this->restoreFilesFromPath($filesFile);
+            
+            // STEP 2: Perform database migration AFTER files are in place
+            $this->logger->info("Step 2: Performing database migration");
             
             if (class_exists('PrestaShop\Module\PsCopia\Migration\DatabaseMigrator')) {
                 $dbMigrator = new DatabaseMigrator($this->backupContainer, $this->logger);
                 $dbMigrator->migrateDatabase($dbFile, $migrationConfig);
-                
-                // CRITICAL: Always fix parameters.php after any import to prevent SQLSTATE errors
-                $this->logger->info("Fixing parameters.php file after import to prevent prefix mismatches");
-                $this->fixParametersFileAfterImport();
-                
             } else {
                 throw new \Exception('DatabaseMigrator class not found');
             }
 
-            // Migrate files if needed
-            if ($migrationConfig['migrate_admin_dir'] || !empty($migrationConfig['file_mappings'])) {
-                $this->logger->info("Performing files migration");
-                
-                if (class_exists('PrestaShop\Module\PsCopia\Migration\FilesMigrator')) {
-                    $filesMigrator = new FilesMigrator($this->backupContainer, $this->logger);
-                    $filesMigrator->migrateFiles($filesFile, $migrationConfig);
-                } else {
-                    throw new \Exception('FilesMigrator class not found');
-                }
-            } else {
-                // Restore files without migration
-                $this->logger->info("Restoring files without migration");
-                $this->restoreFilesFromPath($filesFile);
-            }
-
-            // Generate name for migrated backup
-            $timestamp = date('Y-m-d_H-i-s');
-            $newBackupName = 'migrated_backup_' . $timestamp;
-            
-            // Update metadata
-            $newBackupData = [
-                'backup_name' => $newBackupName,
-                'database_file' => basename($dbFile),
-                'files_file' => basename($filesFile),
-                'created_at' => date('Y-m-d H:i:s'),
-                'type' => 'complete',
-                'imported_from' => $uploadedFile['name'],
-                'original_backup' => $backupInfo['backup_name'] ?? 'unknown',
-                'migration_applied' => true,
-                'migration_config' => $migrationConfig
-            ];
-            
-            $this->saveBackupMetadata($newBackupData);
-            
-            $this->logger->info("Backup import with migration completed successfully");
-            
-            return [
-                'backup_name' => $newBackupName,
-                'imported_from' => $uploadedFile['name'],
-                'migration_applied' => true
-            ];
-            
-        } finally {
-            // Clean up temporary files
+            // STEP 3: Final cleanup
+            $this->logger->info("Step 3: Cleaning up temporary files");
             $this->removeDirectoryRecursively($extractPath);
             @unlink($tempZipPath);
+            
+            $this->logger->info("Backup import and migration completed successfully");
+            
+            return [
+                'success' => true,
+                'message' => 'Backup importado y migrado correctamente',
+                'backup_info' => $backupInfo
+            ];
+            
+        } catch (\Exception $e) {
+            // Clean up if something fails
+            $this->removeDirectoryRecursively($extractPath);
+            @unlink($tempZipPath);
+            throw $e;
         }
     }
 
@@ -1103,129 +1073,5 @@ class ImportExportService
 
         // Exit to prevent any additional output
         exit;
-    }
-
-    /**
-     * Fix parameters.php file after import to prevent SQLSTATE errors
-     * This method ensures that the database prefix in parameters.php matches the current environment
-     */
-    private function fixParametersFileAfterImport(): void
-    {
-        try {
-            $this->logger->info("Fixing parameters.php file to prevent prefix mismatches after import");
-            
-            $parametersFile = _PS_ROOT_DIR_ . '/app/config/parameters.php';
-            
-            if (!file_exists($parametersFile)) {
-                $this->logger->warning("parameters.php file not found, skipping prefix fix");
-                return;
-            }
-            
-            // Get current environment prefix from database tables
-            $currentPrefix = $this->detectCurrentEnvironmentPrefix();
-            
-            $this->logger->info("Detected current environment prefix: " . $currentPrefix);
-            
-            // Read current content
-            $content = file_get_contents($parametersFile);
-            
-            if ($content === false) {
-                $this->logger->error("Failed to read parameters.php file");
-                return;
-            }
-            
-            // Replace any existing database_prefix with current environment one
-            $pattern = "/'database_prefix'\s*=>\s*'[^']*'/";
-            $replacement = "'database_prefix' => '" . $currentPrefix . "'";
-            
-            $newContent = preg_replace($pattern, $replacement, $content);
-            
-            if ($newContent === null) {
-                $this->logger->error("Failed to update database prefix in parameters.php");
-                return;
-            }
-            
-            // Only write if content changed
-            if ($newContent !== $content) {
-                if (file_put_contents($parametersFile, $newContent) === false) {
-                    $this->logger->error("Failed to write updated parameters.php file");
-                } else {
-                    $this->logger->info("Successfully updated database prefix in parameters.php to: " . $currentPrefix);
-                    
-                    // Clear any cached configuration to force reload
-                    $this->clearConfigurationCache();
-                }
-            } else {
-                $this->logger->info("parameters.php already has correct prefix, no changes needed");
-            }
-            
-        } catch (\Exception $e) {
-            $this->logger->error("Failed to fix parameters.php after import: " . $e->getMessage());
-        }
-    }
-    
-    /**
-     * Detect current environment prefix by checking existing tables
-     *
-     * @return string
-     */
-    private function detectCurrentEnvironmentPrefix(): string
-    {
-        try {
-            $db = \Db::getInstance();
-            
-            // Try to find shop_url table with different prefixes
-            $sql = "SHOW TABLES LIKE '%shop_url'";
-            $result = $db->executeS($sql);
-            
-            if (!empty($result)) {
-                $tableName = reset($result[0]);
-                // Extract prefix from table name
-                if (preg_match('/^(.+?)shop_url$/', $tableName, $matches)) {
-                    $prefix = $matches[1];
-                    $this->logger->info("Detected prefix from existing shop_url table: " . $prefix);
-                    return $prefix;
-                }
-            }
-            
-            // Fallback: check if _DB_PREFIX_ constant is defined and usable
-            if (defined('_DB_PREFIX_')) {
-                $prefix = _DB_PREFIX_;
-                $this->logger->info("Using _DB_PREFIX_ constant as fallback: " . $prefix);
-                return $prefix;
-            }
-            
-            // Last resort fallback
-            $fallbackPrefix = 'ps_';
-            $this->logger->warning("Using hardcoded fallback prefix: " . $fallbackPrefix);
-            return $fallbackPrefix;
-            
-        } catch (\Exception $e) {
-            $this->logger->error("Error detecting current prefix: " . $e->getMessage());
-            return 'ps_'; // Safe fallback
-        }
-    }
-    
-    /**
-     * Clear configuration cache to force reload of parameters
-     */
-    private function clearConfigurationCache(): void
-    {
-        try {
-            // Clear PrestaShop cache
-            $cacheDir = _PS_ROOT_DIR_ . '/var/cache';
-            if (is_dir($cacheDir)) {
-                $this->logger->info("Clearing configuration cache");
-                // Remove cache files related to configuration
-                $configCacheFiles = glob($cacheDir . '/**/appParameters*', GLOB_BRACE);
-                foreach ($configCacheFiles as $file) {
-                    if (is_file($file)) {
-                        @unlink($file);
-                    }
-                }
-            }
-        } catch (\Exception $e) {
-            $this->logger->warning("Failed to clear configuration cache: " . $e->getMessage());
-        }
     }
 } 
