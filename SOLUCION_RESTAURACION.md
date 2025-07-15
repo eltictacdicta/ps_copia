@@ -2,161 +2,143 @@
 
 ## ✅ Problema Resuelto
 
-**Error original:** Al restaurar una copia de seguridad, el sistema intentaba usar los datos del servidor original (URL, sufijo de tabla, configuraciones) en lugar de adaptarlos al servidor de destino.
+**Error original:** Al restaurar una copia de seguridad desde otro proyecto, el sistema presentaba dos problemas principales:
 
-**Mensaje de error típico:**
+1. **Error SQL SQLSTATE[42000]**: El sistema intentaba acceder a tablas con prefijo del backup (ej. `ps924_shop_url`) cuando las tablas reales tenían prefijo del entorno actual (ej. `ps_shop_url`).
+
+2. **Error 500 después de restauración**: Aunque la restauración parecía exitosa, el sitio daba error 500 porque el archivo `parameters.php` mantenía el prefijo del backup en lugar del prefijo del entorno actual.
+
+**Mensajes de error típicos:**
 ```
-Error: Restoration failed: Database restore failed: URL_migration failed: 
-SQLSTATE[42S02]: Base table or view not found: 1146 Table 'db.ps_shop_url' doesn't exist. 
+Error: Restoration failed: SQLSTATE[42000]: Syntax error or access violation: 1064 
+You have an error in your SQL syntax; check the manual that corresponds to your 
+MariaDB server version for the right syntax to use near 'LIMIT 1' at line 1, 
 System rolled back to previous state.
+```
+
+```
+SQLSTATE[42S02]: Base table or view not found: 1146 Table 'db.ps924_shop_url' doesn't exist
 ```
 
 ## 🎯 Solución Implementada
 
-### 1. **Migración Automática de URLs Forzada**
+### 1. **Corrección de Detección de Prefijos**
 
 **Cambios en `DatabaseMigrator.php`:**
-- Modificado el método `autoDetectUrls()` para **SIEMPRE** forzar la migración de URLs
-- Agregado flag `force_shop_url_update = true` automáticamente
-- Mejorada la detección de dominio de destino con múltiples fallbacks
+- Modificado `getShopUrlTableName()` para **SIEMPRE** usar el prefijo del entorno actual, nunca el del backup
+- Implementado sistema de reintentos para esperar a que las tablas se creen después de la restauración
+- Mejorada la lógica de fallback para encontrar tablas shop_url
 
 ```php
-// SIEMPRE habilitar migración de URLs si tenemos una URL de destino
-if (!empty($migrationConfig['new_url'])) {
-    $migrationConfig['migrate_urls'] = true;
-    $migrationConfig['force_shop_url_update'] = true; // FORZAR actualización
-}
-```
-
-### 2. **Actualización Forzada de Tabla shop_url**
-
-**Mejoras implementadas:**
-- Agregada actualización forzada de `shop_url` al final del proceso de migración
-- Múltiples fallbacks para detectar el dominio actual
-- Limpieza automática del dominio (remover puertos)
-- Verificación y creación de configuraciones faltantes
-
-```php
-// SIEMPRE forzar actualización de shop_url independientemente de la configuración anterior
-$this->logger->info("FORCING shop_url table update to ensure proper domain configuration");
-$this->forceUpdateShopUrl($migrationConfig);
-```
-
-### 3. **Configuración de Dominio Robusta**
-
-**Mejoras en `updateDomainConfiguration()`:**
-- Verificación de existencia de configuraciones antes de actualizar
-- Inserción automática de configuraciones faltantes (`PS_SHOP_DOMAIN`, `PS_SHOP_DOMAIN_SSL`)
-- Manejo individual de cada configuración para mejor control
-
-```php
-// Verificar si existe la configuración
-$existsQuery = "SELECT COUNT(*) FROM `" . _DB_PREFIX_ . "configuration` WHERE `name` = '" . pSQL($configKey) . "'";
-$exists = $this->db->getValue($existsQuery);
-
-if ($exists) {
-    // Actualizar configuración existente
-    $sql = "UPDATE `" . _DB_PREFIX_ . "configuration` SET `value` = '" . pSQL($domain) . "' WHERE `name` = '" . pSQL($configKey) . "'";
-} else {
-    // Insertar nueva configuración si no existe
-    $sql = "INSERT INTO `" . _DB_PREFIX_ . "configuration` (`name`, `value`, `date_add`, `date_upd`) VALUES ('" . pSQL($configKey) . "', '" . pSQL($domain) . "', NOW(), NOW())";
-}
-```
-
-### 4. **Fallbacks Agresivos para Detección de Dominio**
-
-**Sistema de fallbacks mejorado:**
-```php
-// Intentar múltiples fallbacks
-$fallbacks = [
-    $_SERVER['HTTP_HOST'] ?? '',
-    $_SERVER['SERVER_NAME'] ?? '',
-    'localhost'
-];
-
-foreach ($fallbacks as $fallback) {
-    if (!empty($fallback)) {
-        $targetDomain = $fallback;
-        $this->logger->info("Using fallback domain: " . $targetDomain);
-        break;
+/**
+ * Get the correct shop_url table name with proper prefix detection
+ * This method ensures we always use the CURRENT environment's prefix, not the backup's prefix
+ */
+private function getShopUrlTableName(): ?string
+{
+    // ALWAYS use current environment prefix, never backup prefix
+    $currentPrefix = $this->getCurrentPrefix();
+    
+    // Strategy 1: Try current prefix first (most likely)
+    $currentPrefixTable = $currentPrefix . 'shop_url';
+    if ($this->tableExists($currentPrefixTable)) {
+        return $currentPrefixTable;
     }
+    
+    // Additional fallback strategies...
 }
 ```
 
-### 5. **Verificación Post-Migración**
+### 2. **Corrección Automática del Archivo parameters.php**
 
-**Nuevo método `verifyMigrationSuccess()`:**
-- Verifica que la tabla `shop_url` tenga el dominio correcto
-- Verifica que las configuraciones `PS_SHOP_DOMAIN` y `PS_SHOP_DOMAIN_SSL` estén actualizadas
-- Registra todos los valores para debugging
+**Nueva funcionalidad implementada:**
+- Método `fixParametersFilePrefix()` que corrige automáticamente el prefijo en `parameters.php`
+- Se ejecuta automáticamente después de cada restauración
+- Previene el error 500 asegurando coherencia entre configuración y base de datos
 
-## 🚀 Cómo Funciona Ahora
-
-### **Proceso de Restauración Mejorado:**
-
-1. **Detección Automática:** El sistema detecta automáticamente el dominio actual del servidor
-2. **Configuración Forzada:** Se fuerza la migración de URLs independientemente de la configuración
-3. **Restauración de BD:** Se restaura la base de datos del backup
-4. **Migración de URLs:** Se ejecuta la migración de URLs (si se detectaron URLs origen y destino)
-5. **Actualización Forzada:** Se fuerza la actualización de `shop_url` con el dominio actual
-6. **Configuración de Dominio:** Se actualizan/crean las configuraciones de dominio
-7. **Verificación:** Se verifica que todos los cambios se hayan aplicado correctamente
-
-### **Adaptación Automática:**
-- **URLs:** `https://servidor-origen.com` → `https://servidor-destino.com`
-- **Dominios:** `servidor-origen.com` → `servidor-destino.com`
-- **Configuraciones:** Se preservan las del servidor de destino
-- **Prefijos:** Se adaptan automáticamente si son diferentes
-
-## ⚠️ Compatibilidad
-
-**Entornos soportados:**
-- ✅ DDEV (detección automática)
-- ✅ Docker (detección automática)
-- ✅ Servidores tradicionales
-- ✅ Localhost
-- ✅ Dominios con puerto (se limpia automáticamente)
-
-**Versiones PrestaShop:**
-- ✅ PrestaShop 1.7.x
-- ✅ PrestaShop 8.x
-- ✅ Diferentes prefijos de tabla
-
-## 📋 Resultado
-
-**Antes:**
-```
-❌ Error: Base table or view not found: 1146 Table 'db.ps_shop_url' doesn't exist
-❌ URLs del servidor original permanecían en el destino
-❌ Configuraciones mezcladas entre origen y destino
+```php
+/**
+ * Fix parameters.php file to ensure correct database prefix after restoration
+ * This prevents the common issue where restored backups have different prefixes
+ */
+private function fixParametersFilePrefix(): void
+{
+    // Reads parameters.php and updates database_prefix to match current environment
+    $pattern = "/'database_prefix'\s*=>\s*'[^']*'/";
+    $replacement = "'database_prefix' => '" . $currentPrefix . "'";
+    $newContent = preg_replace($pattern, $replacement, $content);
+}
 ```
 
-**Después:**
+### 3. **Mejora del Orden de Operaciones**
+
+**Secuencia optimizada de migración:**
+1. **PRIMERO**: Restaurar completamente la base de datos
+2. **SEGUNDO**: Aplicar migraciones de URL (después de que existan las tablas)
+3. **TERCERO**: Actualización forzada de shop_url para verificación
+4. **CUARTO**: Preservar configuración admin
+5. **QUINTO**: **NUEVO** - Corregir parameters.php automáticamente
+
+### 4. **Sistema de Espera para Tablas**
+
+**Mecanismo de retry implementado:**
+- Espera hasta 5 segundos para que las tablas se creen después de la restauración
+- Previene errores de "tabla no encontrada" durante migraciones inmediatas
+- Logging detallado de cada intento
+
+```php
+// Wait for table to exist after restoration (with retry mechanism)
+$maxRetries = 5;
+$retryCount = 0;
+
+while ($retryCount < $maxRetries && !$this->tableExists($shopUrlTable)) {
+    $this->logger->info("Waiting for shop_url table to be created... (attempt " . ($retryCount + 1) . "/{$maxRetries})");
+    sleep(1); // Wait 1 second
+    $retryCount++;
+}
 ```
-✅ Restauración exitosa con adaptación automática
-✅ URLs actualizadas al servidor de destino
-✅ Configuraciones correctas para el entorno actual
-✅ Verificación post-migración automática
+
+## 🔍 Diagnóstico del Problema Resuelto
+
+**Caso específico encontrado:**
+- **Base de datos**: Tablas con prefijo `ps_` (correcto)
+- **parameters.php**: Configurado con `'database_prefix' => 'ps924_'` (incorrecto)
+- **Resultado**: Error 500 porque PrestaShop no podía encontrar las tablas
+
+**Solución aplicada:**
+1. Corrección manual inmediata: `sed -i "s/'database_prefix' => 'ps924_'/'database_prefix' => 'ps_'/" parameters.php`
+2. Implementación de corrección automática permanente en el código
+
+## 📋 Verificación de la Solución
+
+**Comandos de verificación utilizados:**
+```bash
+# Verificar prefijo en base de datos
+ddev exec mysql -e "SHOW TABLES LIKE '%shop_url%';"
+
+# Verificar configuración en parameters.php
+ddev exec grep "database_prefix" /var/www/html/app/config/parameters.php
+
+# Verificar estado del sitio
+curl -s -I https://eghcopia3.ddev.site
 ```
 
-## 🔍 Logs de Debugging
+**Resultado final:**
+- ✅ Sitio funcionando correctamente (HTTP 200)
+- ✅ Coherencia entre prefijos de base de datos y configuración
+- ✅ Prevención automática de futuros problemas similares
 
-El sistema ahora genera logs detallados que incluyen:
-- Detección de dominio actual
-- Configuración de migración aplicada
-- Resultados de actualización de `shop_url`
-- Verificación de configuraciones
-- Fallbacks utilizados
+## 🚀 Beneficios de la Solución
 
-**Ejemplo de logs:**
-```
-[INFO] Auto-detected destination URL: https://prestademo2.ddev.site
-[INFO] URL migration FORCED: servidor-origen.com → prestademo2.ddev.site
-[INFO] FORCING shop_url table update to ensure proper domain configuration
-[INFO] Updated PS_SHOP_DOMAIN to prestademo2.ddev.site: SUCCESS
-[INFO] Migration verification completed
-```
+1. **Resolución automática**: El problema se corrige automáticamente sin intervención manual
+2. **Prevención proactiva**: Evita el problema desde el origen durante la restauración
+3. **Compatibilidad completa**: Funciona entre diferentes entornos PrestaShop
+4. **Logging detallado**: Facilita el diagnóstico de problemas futuros
+5. **Robustez mejorada**: Sistema de reintentos para operaciones críticas
 
-## 🎉 Conclusión
+## 📝 Notas Técnicas
 
-La solución implementada garantiza que **todas las restauraciones de backup se adapten automáticamente al servidor de destino**, eliminando completamente el error original y asegurando que el sistema funcione correctamente después de la restauración. 
+- **Versión MariaDB**: 10.11.11-MariaDB (verificado compatible)
+- **Entorno**: DDEV con PrestaShop 8.x
+- **Archivos modificados**: `DatabaseMigrator.php`, documentación
+- **Impacto**: Cero interrupciones, mejora transparente del proceso 

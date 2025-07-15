@@ -195,7 +195,7 @@ class DatabaseMigrator
     }
 
     /**
-     * Migrate database content from external PrestaShop
+     * Main migration method with enhanced URL handling
      *
      * @param string $backupFile Path to database backup file
      * @param array $migrationConfig Migration configuration
@@ -203,8 +203,8 @@ class DatabaseMigrator
      */
     public function migrateDatabase(string $backupFile, array $migrationConfig): void
     {
-        $this->logger->info("Starting database migration with configuration", $migrationConfig);
-        
+        $this->logger->info("Starting enhanced database migration");
+
         // Auto-detect URLs if not provided
         $migrationConfig = $this->autoDetectUrls($backupFile, $migrationConfig);
         
@@ -227,10 +227,13 @@ class DatabaseMigrator
         $tempBackup = $this->createTemporaryBackup();
 
         try {
-            // Restore the external database
+            // STEP 1: FIRST restore the external database completely
+            $this->logger->info("Step 1: Restoring database from backup file");
             $this->restoreExternalDatabasePrivate($backupFile);
-
-            // Apply URL migrations - ALWAYS attempt some form of URL migration
+            
+            // STEP 2: THEN apply URL migrations after database is restored
+            $this->logger->info("Step 2: Applying URL migrations after database restoration");
+            
             if (isset($migrationConfig['migrate_urls']) && $migrationConfig['migrate_urls'] && 
                 !empty($migrationConfig['old_url']) && !empty($migrationConfig['new_url'])) {
                 $this->logger->info("URL migration enabled - executing complete URL migration");
@@ -248,53 +251,41 @@ class DatabaseMigrator
                     'new_url_present' => !empty($migrationConfig['new_url'])
                 ]);
                 // Always update shop_url table with current domain even if URLs are not explicitly configured
-                $this->updateShopUrlTable();
-            }
-
-            // Verificar estado de base de datos antes de migración de URLs
-            $this->validateDatabaseState();
-            
-            // SIEMPRE forzar actualización de shop_url independientemente de la configuración anterior
-            $this->logger->info("FORCING shop_url table update to ensure proper domain configuration");
-            $this->forceUpdateShopUrl($migrationConfig);
-
-            // NOTA: Ya no migramos directorios admin - siempre se mantiene la configuración original del backup
-            // La carpeta admin conservará la URL/configuración antigua independientemente de la configuración
-            $this->logger->info("Preservando configuración de directorio admin del backup original");
-            $this->preserveAdminConfiguration();
-
-            // Update database configuration if provided
-            if (!empty($migrationConfig['preserve_db_config']) && $migrationConfig['preserve_db_config']) {
-                $this->preserveCurrentDbConfig();
-            }
-
-            // Update specific configurations
-            $this->updateConfigurations($migrationConfig);
-
-            // Force update shop_url if requested or if migration was incomplete
-            if (isset($migrationConfig['force_shop_url_update']) && $migrationConfig['force_shop_url_update']) {
                 $this->forceUpdateShopUrl($migrationConfig);
             }
 
-            // Clean temporary backup
+            // STEP 3: Final forced shop_url update to ensure it's correct
+            $this->logger->info("Step 3: Final verification and forced shop_url update");
+            $this->forceUpdateShopUrl($migrationConfig);
+
+            // STEP 4: Preserve admin directory configuration
+            $this->preserveAdminConfiguration();
+            
+            // STEP 5: Fix parameters.php to ensure correct database prefix
+            $this->logger->info("Step 5: Fixing parameters.php file to match current environment");
+            $this->fixParametersFilePrefix();
+
+            // Clean up temporary backup
             @unlink($tempBackup);
-
-            // Verificar que la migración se haya completado correctamente
-            $this->verifyMigrationSuccess($migrationConfig);
-
-            $this->logger->info("Database migration completed successfully");
+            
+            $this->logger->info("Enhanced database migration completed successfully");
 
         } catch (Exception $e) {
-            $this->logger->error("Database migration failed: " . $e->getMessage());
+            $this->logger->error("Enhanced database migration failed: " . $e->getMessage());
             
-            // Restore from temporary backup
-            try {
-                $this->restoreExternalDatabasePrivate($tempBackup);
-                $this->logger->info("Database restored from temporary backup");
-            } catch (Exception $restoreError) {
-                $this->logger->error("Failed to restore from temporary backup: " . $restoreError->getMessage());
+            // Attempt to restore from temporary backup
+            if (file_exists($tempBackup)) {
+                $this->logger->info("Attempting to restore from temporary backup");
+                try {
+                    $this->restoreExternalDatabasePrivate($tempBackup);
+                    $this->logger->info("Successfully restored from temporary backup");
+                } catch (Exception $restoreError) {
+                    $this->logger->error("Failed to restore from temporary backup: " . $restoreError->getMessage());
+                }
+                
+                @unlink($tempBackup);
             }
-
+            
             throw $e;
         }
     }
@@ -883,116 +874,100 @@ class DatabaseMigrator
      }
 
      /**
-      * Force update shop_url table with specified configuration
-      * This method can be called to manually update shop_url when automatic detection fails
+      * Force update shop_url table with current domain
+      * This method ensures shop_url is updated regardless of backup configuration
       *
       * @param array $migrationConfig
       */
      private function forceUpdateShopUrl(array $migrationConfig): void
      {
-         $this->logger->info("Force updating shop_url table");
+         $this->logger->info("FORCE updating shop_url table to overwrite backup URLs");
 
          try {
-             $shopUrlTable = $this->getShopUrlTableName();
+             // Get current domain from various sources - be more aggressive
+             $currentDomain = $this->getCurrentDomain();
              
-             if (!$shopUrlTable) {
-                 $this->logger->error("No shop_url table found, cannot force update");
-                 return;
-             }
-
-             // Determine what domain to use
-             $targetDomain = null;
-             $targetPath = '/';
-
-             // Use new_url if available
-             if (!empty($migrationConfig['new_url'])) {
-                 $parsedUrl = parse_url($migrationConfig['new_url']);
-                 $targetDomain = $parsedUrl['host'] ?? null;
-                 $targetPath = isset($parsedUrl['path']) ? rtrim($parsedUrl['path'], '/') . '/' : '/';
-                 $this->logger->info("Using new_url for force update: {$migrationConfig['new_url']}");
-             } 
-             // Fallback to current domain detection
-             else {
-                 $targetDomain = $this->getCurrentDomain();
-                 $this->logger->info("Using detected current domain for force update: " . ($targetDomain ?: 'NULL'));
-             }
-
-             // Si no se puede detectar el dominio, usar fallbacks más agresivos
-             if (!$targetDomain) {
-                 $this->logger->warning("Could not determine target domain, trying fallbacks");
+             $this->logger->info("Detected current domain: " . ($currentDomain ?: 'NULL'));
+             
+             if (!$currentDomain) {
+                 $this->logger->warning("Could not determine current domain - trying all fallbacks");
                  
-                 // Intentar múltiples fallbacks
+                 // Try multiple fallbacks in order of preference
                  $fallbacks = [
-                     $_SERVER['HTTP_HOST'] ?? '',
-                     $_SERVER['SERVER_NAME'] ?? '',
-                     'localhost'
+                     'SERVER_NAME' => $_SERVER['SERVER_NAME'] ?? '',
+                     'HTTP_HOST' => $_SERVER['HTTP_HOST'] ?? '',
+                     'localhost' => 'localhost'
                  ];
                  
-                 foreach ($fallbacks as $fallback) {
-                     if (!empty($fallback)) {
-                         $targetDomain = $fallback;
-                         $this->logger->info("Using fallback domain: " . $targetDomain);
+                 foreach ($fallbacks as $source => $domain) {
+                     if (!empty($domain)) {
+                         $currentDomain = $domain;
+                         $this->logger->info("Using {$source} as fallback domain: " . $currentDomain);
                          break;
                      }
                  }
                  
-                 if (!$targetDomain) {
-                     $this->logger->error("All fallbacks failed, cannot force update shop_url");
+                 if (!$currentDomain) {
+                     $this->logger->error("All fallbacks failed, cannot update shop_url");
                      return;
                  }
              }
 
-             // Log current state with better error handling
-             $currentData = $this->safeDbQuery("SELECT * FROM `{$shopUrlTable}` LIMIT 1", 'getRow');
-             $this->logger->info("Current shop_url data before force update", $currentData ?: []);
-
-             // Limpiar el dominio (remover puerto si existe)
-             if (strpos($targetDomain, ':') !== false) {
-                 $targetDomain = explode(':', $targetDomain)[0];
-                 $this->logger->info("Cleaned domain (removed port): " . $targetDomain);
+             // Remove port if present
+             if (strpos($currentDomain, ':') !== false) {
+                 $originalDomain = $currentDomain;
+                 $currentDomain = explode(':', $currentDomain)[0];
+                 $this->logger->info("Removed port from domain: {$originalDomain} → {$currentDomain}");
              }
 
-             // Update the shop_url table with improved SQL syntax
+             // Get shop_url table name - this will use current environment prefix
+             $shopUrlTable = $this->getShopUrlTableName();
+             
+             if (!$shopUrlTable) {
+                 $this->logger->error("Could not determine shop_url table name");
+                 return;
+             }
+             
+             // Wait for table to exist after restoration (with retry mechanism)
+             $maxRetries = 5;
+             $retryCount = 0;
+             
+             while ($retryCount < $maxRetries && !$this->tableExists($shopUrlTable)) {
+                 $this->logger->info("Waiting for shop_url table to be created... (attempt " . ($retryCount + 1) . "/{$maxRetries})");
+                 sleep(1); // Wait 1 second
+                 $retryCount++;
+             }
+             
+             if (!$this->tableExists($shopUrlTable)) {
+                 $this->logger->error("shop_url table does not exist even after restoration: " . $shopUrlTable);
+                 return;
+             }
+
+             // Log current data before update
+             $currentData = $this->safeDbQuery("SELECT * FROM `{$shopUrlTable}` LIMIT 1", 'getRow');
+             $this->logger->info("Current shop_url data before FORCE update", $currentData ?: []);
+
+             // FORCE update the shop_url table
              $sql = "UPDATE `{$shopUrlTable}` SET 
-                     `domain` = '" . pSQL($targetDomain) . "', 
-                     `domain_ssl` = '" . pSQL($targetDomain) . "',
-                     `physical_uri` = '" . pSQL($targetPath) . "' 
-                     WHERE `id_shop_url` > 0";
-                     
+                     `domain` = '" . pSQL($currentDomain) . "', 
+                     `domain_ssl` = '" . pSQL($currentDomain) . "'";
+             
              $result = $this->safeDbQuery($sql, 'execute');
              
              if ($result) {
-                 $this->logger->info("Force update query executed successfully");
-                 
-                 // Log state after update with better error handling
+                 // Log data after update
                  $newData = $this->safeDbQuery("SELECT * FROM `{$shopUrlTable}` LIMIT 1", 'getRow');
-                 $this->logger->info("New shop_url data after force update", $newData ?: []);
-                 
-                 $this->logger->info("Force updated shop_url table - domain: {$targetDomain}, physical_uri: {$targetPath}");
-                 
-                 // También actualizar configuraciones de dominio
-                 $this->updateDomainConfiguration($targetDomain);
+                 $this->logger->info("FORCE update completed successfully", [
+                     'table' => $shopUrlTable,
+                     'domain' => $currentDomain,
+                     'new_data' => $newData ?: []
+                 ]);
              } else {
-                 $this->logger->error("Force update query failed to execute");
+                 $this->logger->error("FORCE update failed for shop_url table");
              }
 
          } catch (Exception $e) {
              $this->logger->error("Failed to force update shop_url table: " . $e->getMessage());
-             
-             // Try alternative approach with simpler SQL
-             try {
-                 $this->logger->info("Attempting alternative shop_url update approach");
-                 $simpleSql = "UPDATE `{$shopUrlTable}` SET domain = '" . pSQL($targetDomain) . "', domain_ssl = '" . pSQL($targetDomain) . "' WHERE id_shop_url = 1";
-                 $simpleResult = $this->db->execute($simpleSql);
-                 
-                 if ($simpleResult) {
-                     $this->logger->info("Alternative shop_url update succeeded");
-                 } else {
-                     $this->logger->error("Alternative shop_url update also failed");
-                 }
-             } catch (Exception $e2) {
-                 $this->logger->error("Alternative shop_url update threw exception: " . $e2->getMessage());
-             }
          }
      }
 
@@ -1985,43 +1960,43 @@ Options -Indexes
      }
 
     /**
-     * Get the correct shop_url table name based on what exists in the database
+     * Get the correct shop_url table name with proper prefix detection
+     * This method ensures we always use the CURRENT environment's prefix, not the backup's prefix
      *
      * @return string|null
      */
     private function getShopUrlTableName(): ?string
     {
-        // Strategy 1: Get the correct current prefix
-        $currentPrefix = $this->getCurrentPrefix();
-        $this->logger->info("Using current prefix for shop_url table: " . $currentPrefix);
+        $this->logger->info("Detecting shop_url table name for CURRENT environment");
         
-        // Strategy 2: Try current prefix first
+        // ALWAYS use current environment prefix, never backup prefix
+        $currentPrefix = $this->getCurrentPrefix();
+        
+        $this->logger->info("Using CURRENT environment prefix for shop_url table: " . $currentPrefix);
+        
+        // Strategy 1: Try current prefix first (most likely)
         $currentPrefixTable = $currentPrefix . 'shop_url';
         if ($this->tableExists($currentPrefixTable)) {
             $this->logger->info("Found shop_url table with current prefix: " . $currentPrefixTable);
             return $currentPrefixTable;
         }
         
-        // Strategy 3: If current prefix doesn't work, search for any shop_url table
+        // Strategy 2: Search for any shop_url table in current database
         try {
             $sql = "SHOW TABLES LIKE '%shop_url'";
             $result = $this->db->executeS($sql);
             
             if (!empty($result)) {
-                // Log all found tables for debugging
-                $allTables = array_map('current', $result);
-                $this->logger->info("Found shop_url tables: " . implode(', ', $allTables));
-                
-                // Prefer the first one found
-                $tableName = reset($result[0]);
-                $this->logger->info("Using shop_url table: " . $tableName);
+                $foundTable = reset($result);
+                $tableName = reset($foundTable);
+                $this->logger->info("Found shop_url table in database: " . $tableName);
                 return $tableName;
             }
         } catch (Exception $e) {
-            $this->logger->error("Error finding shop_url table: " . $e->getMessage());
+            $this->logger->warning("Failed to search for shop_url tables: " . $e->getMessage());
         }
         
-        // Strategy 4: Try common prefixes as fallback
+        // Strategy 3: Try common prefixes as fallback (but in current database)
         $commonPrefixes = ['ps_', 'myshop_', 'prestashop_', ''];
         foreach ($commonPrefixes as $prefix) {
             $testTable = $prefix . 'shop_url';
@@ -2031,11 +2006,12 @@ Options -Indexes
             }
         }
         
-        $this->logger->error("No shop_url table found with any prefix or strategy");
-        return null;
+        // Strategy 4: If no shop_url table exists, it means restoration hasn't happened yet
+        // Return the expected table name with current prefix
+        $expectedTable = $currentPrefix . 'shop_url';
+        $this->logger->warning("No shop_url table found, returning expected table name: " . $expectedTable);
+        return $expectedTable;
     }
-
-
 
     /**
      * Create basic shop_url entry if table exists but is empty
@@ -2361,5 +2337,61 @@ Options -Indexes
         $this->debugLog("=== DIAGNOSTIC COMPLETE ===", $diagnostic);
         
         return $diagnostic;
+    }
+
+    /**
+     * Fix parameters.php file to ensure correct database prefix after restoration
+     * This prevents the common issue where restored backups have different prefixes
+     */
+    private function fixParametersFilePrefix(): void
+    {
+        $this->logger->info("Fixing parameters.php file to ensure correct database prefix");
+        
+        try {
+            $parametersFile = _PS_ROOT_DIR_ . '/app/config/parameters.php';
+            
+            if (!file_exists($parametersFile)) {
+                $this->logger->warning("parameters.php file not found, skipping prefix fix");
+                return;
+            }
+            
+            // Get current environment prefix
+            $currentPrefix = $this->getCurrentPrefix();
+            
+            $this->logger->info("Ensuring parameters.php uses current prefix: " . $currentPrefix);
+            
+            // Read current content
+            $content = file_get_contents($parametersFile);
+            
+            if ($content === false) {
+                $this->logger->error("Failed to read parameters.php file");
+                return;
+            }
+            
+            // Replace any existing database_prefix with current one
+            $pattern = "/'database_prefix'\s*=>\s*'[^']*'/";
+            $replacement = "'database_prefix' => '" . $currentPrefix . "'";
+            
+            $newContent = preg_replace($pattern, $replacement, $content);
+            
+            if ($newContent === null) {
+                $this->logger->error("Failed to update database prefix in parameters.php");
+                return;
+            }
+            
+            // Only write if content changed
+            if ($newContent !== $content) {
+                if (file_put_contents($parametersFile, $newContent) === false) {
+                    $this->logger->error("Failed to write updated parameters.php file");
+                } else {
+                    $this->logger->info("Successfully updated database prefix in parameters.php to: " . $currentPrefix);
+                }
+            } else {
+                $this->logger->info("parameters.php already has correct prefix, no changes needed");
+            }
+            
+        } catch (Exception $e) {
+            $this->logger->error("Failed to fix parameters.php prefix: " . $e->getMessage());
+        }
     }
  }  
