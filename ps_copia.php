@@ -22,7 +22,7 @@
  * @author    PrestaShop SA and Contributors <contact@prestashop.com>
  * @copyright Since 2007 PrestaShop SA and Contributors
  * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
- * @version   1.1.1-secure
+ * @version   1.2-secure
  */
 
 if (!defined('_PS_VERSION_')) {
@@ -46,7 +46,7 @@ class Ps_copia extends Module
         $this->name = 'ps_copia';
         $this->tab = 'administration';
         $this->author = 'PrestaShop';
-        $this->version = '1.1.1';
+        $this->version = '1.2';
         $this->need_instance = 1;
         $this->module_key = '926bc3e16738b7b834f37fc63d59dcf8';
 
