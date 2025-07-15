@@ -1147,8 +1147,16 @@ class RestoreService
             $backupAdminDir = $this->detectAdminDirectoryInBackup($tempDir);
             $currentAdminDir = $this->getCurrentAdminDirectory();
 
-            // Copy files from temp to real location
+            // STEP 1: Preserve current database credentials before restoration
+            $this->logger->info("Preserving current database credentials");
+            $currentDbCredentials = $this->getCurrentDbCredentials();
+            
+            // STEP 2: Copy files from temp to real location (this will overwrite parameters.php)
             $this->copyDirectoryRecursively($tempDir, _PS_ROOT_DIR_);
+            
+            // STEP 3: Restore the correct database credentials after file restoration
+            $this->logger->info("Restoring correct database credentials after file restoration");
+            $this->restoreDbCredentials($currentDbCredentials);
 
             // Clean up obsolete admin directories after successful restoration
             $this->cleanupObsoleteAdminDirectories($backupAdminDir, $currentAdminDir);
@@ -1710,5 +1718,120 @@ class RestoreService
     {
         $metadataFile = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH) . '/backup_metadata.json';
         file_put_contents($metadataFile, json_encode($metadata, JSON_PRETTY_PRINT));
+    }
+
+    /**
+     * Get current database credentials from the environment
+     *
+     * @return array
+     */
+    private function getCurrentDbCredentials(): array
+    {
+        $this->logger->info("Reading current database credentials");
+        
+        // Check if we're in DDEV environment
+        if (getenv('DDEV_SITENAME') || getenv('DDEV_PROJECT') !== false) {
+            $this->logger->info("Detected DDEV environment, using DDEV database credentials");
+            return [
+                'host' => 'db',
+                'user' => 'db', 
+                'password' => 'db',
+                'name' => 'db',
+                'prefix' => _DB_PREFIX_,
+                'environment' => 'ddev'
+            ];
+        }
+        
+        // Try to read from current parameters.php if it exists
+        $parametersFile = _PS_ROOT_DIR_ . '/app/config/parameters.php';
+        if (file_exists($parametersFile)) {
+            try {
+                $parameters = include $parametersFile;
+                if (isset($parameters['parameters'])) {
+                    $this->logger->info("Reading credentials from current parameters.php");
+                    return [
+                        'host' => $parameters['parameters']['database_host'] ?? _DB_SERVER_,
+                        'user' => $parameters['parameters']['database_user'] ?? _DB_USER_,
+                        'password' => $parameters['parameters']['database_password'] ?? _DB_PASSWD_,
+                        'name' => $parameters['parameters']['database_name'] ?? _DB_NAME_,
+                        'prefix' => $parameters['parameters']['database_prefix'] ?? _DB_PREFIX_,
+                        'environment' => 'prestashop'
+                    ];
+                }
+            } catch (\Exception $e) {
+                $this->logger->warning("Could not read current parameters.php: " . $e->getMessage());
+            }
+        }
+        
+        // Fallback to PrestaShop constants
+        $this->logger->info("Using PrestaShop constants as fallback");
+        return [
+            'host' => _DB_SERVER_,
+            'user' => _DB_USER_,
+            'password' => _DB_PASSWD_,
+            'name' => _DB_NAME_,
+            'prefix' => _DB_PREFIX_,
+            'environment' => 'constants'
+        ];
+    }
+
+    /**
+     * Restore database credentials to parameters.php after file restoration
+     *
+     * @param array $credentials
+     * @throws \Exception
+     */
+    private function restoreDbCredentials(array $credentials): void
+    {
+        $this->logger->info("Restoring database credentials", [
+            'environment' => $credentials['environment'],
+            'host' => $credentials['host'],
+            'user' => $credentials['user'],
+            'name' => $credentials['name'],
+            'prefix' => $credentials['prefix']
+        ]);
+
+        $parametersFile = _PS_ROOT_DIR_ . '/app/config/parameters.php';
+        
+        if (!file_exists($parametersFile)) {
+            $this->logger->error("parameters.php file not found after restoration: " . $parametersFile);
+            throw new \Exception("parameters.php file not found after restoration");
+        }
+        
+        // Read current content (from backup)
+        $content = file_get_contents($parametersFile);
+        if ($content === false) {
+            throw new \Exception("Failed to read parameters.php file");
+        }
+        
+        // Replace database credentials with current environment values
+        $patterns = [
+            "/'database_host'\s*=>\s*'[^']*'/" => "'database_host' => '" . $credentials['host'] . "'",
+            "/'database_user'\s*=>\s*'[^']*'/" => "'database_user' => '" . $credentials['user'] . "'",
+            "/'database_password'\s*=>\s*'[^']*'/" => "'database_password' => '" . $credentials['password'] . "'",
+            "/'database_name'\s*=>\s*'[^']*'/" => "'database_name' => '" . $credentials['name'] . "'",
+            "/'database_prefix'\s*=>\s*'[^']*'/" => "'database_prefix' => '" . $credentials['prefix'] . "'",
+        ];
+        
+        foreach ($patterns as $pattern => $replacement) {
+            $newContent = preg_replace($pattern, $replacement, $content);
+            if ($newContent !== null) {
+                $content = $newContent;
+            } else {
+                $this->logger->warning("Failed to replace pattern: " . $pattern);
+            }
+        }
+        
+        // Write updated content
+        if (file_put_contents($parametersFile, $content) === false) {
+            throw new \Exception("Failed to write updated parameters.php file");
+        }
+        
+        $this->logger->info("Successfully restored database credentials to parameters.php", [
+            'host' => $credentials['host'],
+            'user' => $credentials['user'],
+            'name' => $credentials['name'],
+            'prefix' => $credentials['prefix']
+        ]);
     }
 } 
