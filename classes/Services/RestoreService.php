@@ -1390,30 +1390,7 @@ class RestoreService
         }
     }
 
-    /**
-     * Get current database credentials
-     *
-     * @return array
-     */
-    private function getCurrentDbCredentials(): array
-    {
-        // Check if we're in DDEV environment
-        if (getenv('DDEV_SITENAME') || $this->validationService->isDdevEnvironment()) {
-            return [
-                'host' => 'db',
-                'user' => 'db', 
-                'password' => 'db',
-                'name' => 'db'
-            ];
-        }
-        
-        return [
-            'host' => _DB_SERVER_,
-            'user' => _DB_USER_,
-            'password' => _DB_PASSWD_,
-            'name' => _DB_NAME_
-        ];
-    }
+
 
     /**
      * Detect admin directory in backup
