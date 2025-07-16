@@ -669,7 +669,7 @@ class RestoreService
         $prefix = $migrationConfig['target_prefix'];
         
         // Update shop_url table
-        $sql = "UPDATE `{$prefix}shop_url` SET 
+        $sql = "UPDATE `" . $prefix . "shop_url` SET 
                 `domain` = '" . pSQL($targetDomain) . "',
                 `domain_ssl` = '" . pSQL($targetDomain) . "'";
         $db->execute($sql);
@@ -681,7 +681,7 @@ class RestoreService
         ];
         
         foreach ($domainConfigs as $configKey => $configValue) {
-            $sql = "UPDATE `{$prefix}configuration` 
+            $sql = "UPDATE `" . $prefix . "configuration` 
                     SET `value` = '" . pSQL($configValue) . "' 
                     WHERE `name` = '" . pSQL($configKey) . "'";
             $db->execute($sql);
@@ -710,7 +710,7 @@ class RestoreService
         
         foreach ($problematicModules as $moduleName) {
             try {
-                $sql = "UPDATE `{$prefix}module` SET `active` = 0 WHERE `name` = '" . pSQL($moduleName) . "'";
+                $sql = "UPDATE `" . $prefix . "module` SET `active` = 0 WHERE `name` = '" . pSQL($moduleName) . "'";
                 $db->execute($sql);
             } catch (\Exception $e) {
                 // Ignore errors for modules that don't exist
@@ -727,7 +727,7 @@ class RestoreService
         
         foreach ($cacheConfigs as $configKey => $configValue) {
             try {
-                $sql = "UPDATE `{$prefix}configuration` 
+                $sql = "UPDATE `" . $prefix . "configuration` 
                         SET `value` = '" . pSQL($configValue) . "' 
                         WHERE `name` = '" . pSQL($configKey) . "'";
                 $db->execute($sql);
@@ -769,7 +769,7 @@ class RestoreService
         }
         
         // Verify domain configuration
-        $sql = "SELECT `domain` FROM `{$prefix}shop_url` LIMIT 1";
+        $sql = "SELECT `domain` FROM `" . $prefix . "shop_url` LIMIT 1";
         $result = $db->getRow($sql);
         
         if (empty($result) || $result['domain'] !== $migrationConfig['target_domain']) {

@@ -643,7 +643,7 @@ class TransactionManager
         $originalValue = $data['original_value'];
         $prefix = $data['prefix'] ?? _DB_PREFIX_;
         
-        $sql = "UPDATE `{$prefix}configuration` SET `value` = '" . pSQL($originalValue) . "' 
+        $sql = "UPDATE `" . $prefix . "configuration` SET `value` = '" . pSQL($originalValue) . "' 
                 WHERE `name` = '" . pSQL($configKey) . "'";
         
         $this->db->execute($sql);

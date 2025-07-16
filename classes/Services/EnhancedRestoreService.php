@@ -762,7 +762,7 @@ class EnhancedRestoreService
         
         try {
             // Update shop_url table
-            $sql = "UPDATE `{$prefix}shop_url` SET 
+            $sql = "UPDATE `" . $prefix . "shop_url` SET 
                     `domain` = '" . pSQL($migrationConfig['target_domain']) . "',
                     `domain_ssl` = '" . pSQL($migrationConfig['target_domain']) . "'";
             
@@ -775,7 +775,7 @@ class EnhancedRestoreService
             ];
             
             foreach ($configUpdates as $configKey => $configValue) {
-                $sql = "UPDATE `{$prefix}configuration` SET `value` = '" . pSQL($configValue) . "' 
+                $sql = "UPDATE `" . $prefix . "configuration` SET `value` = '" . pSQL($configValue) . "' 
                         WHERE `name` = '" . pSQL($configKey) . "'";
                 $db->execute($sql);
             }
@@ -816,15 +816,15 @@ class EnhancedRestoreService
         ];
         
         foreach ($urlTables as $table => $column) {
-            $sql = "UPDATE `{$prefix}{$table}` SET 
-                    `{$column}` = REPLACE(`{$column}`, 'http://{$sourceDomain}', 'http://{$targetDomain}'),
-                    `{$column}` = REPLACE(`{$column}`, 'https://{$sourceDomain}', 'https://{$targetDomain}')";
+            $sql = "UPDATE `" . $prefix . $table . "` SET 
+                    `" . $column . "` = REPLACE(`" . $column . "`, 'http://" . $sourceDomain . "', 'http://" . $targetDomain . "'),
+                    `" . $column . "` = REPLACE(`" . $column . "`, 'https://" . $sourceDomain . "', 'https://" . $targetDomain . "')";
             
             try {
                 $db->execute($sql);
-                $this->logger->info("Updated URLs in table: {$table}");
+                $this->logger->info("Updated URLs in table: " . $table);
             } catch (Exception $e) {
-                $this->logger->warning("Failed to update URLs in table: {$table}", [
+                $this->logger->warning("Failed to update URLs in table: " . $table, [
                     'error' => $e->getMessage()
                 ]);
             }
@@ -852,12 +852,12 @@ class EnhancedRestoreService
         ];
         
         foreach ($configUpdates as $configKey => $configValue) {
-            $sql = "UPDATE `{$prefix}configuration` SET `value` = '" . pSQL($configValue) . "' 
+            $sql = "UPDATE `" . $prefix . "configuration` SET `value` = '" . pSQL($configValue) . "' 
                     WHERE `name` = '" . pSQL($configKey) . "'";
             try {
                 $db->execute($sql);
             } catch (Exception $e) {
-                $this->logger->warning("Failed to update config: {$configKey}", [
+                $this->logger->warning("Failed to update config: " . $configKey, [
                     'error' => $e->getMessage()
                 ]);
             }
@@ -883,12 +883,12 @@ class EnhancedRestoreService
         ];
         
         foreach ($problematicModules as $module) {
-            $sql = "UPDATE `{$prefix}module` SET `active` = 0 WHERE `name` = '" . pSQL($module) . "'";
+            $sql = "UPDATE `" . $prefix . "module` SET `active` = 0 WHERE `name` = '" . pSQL($module) . "'";
             try {
                 $db->execute($sql);
-                $this->logger->info("Disabled module: {$module}");
+                $this->logger->info("Disabled module: " . $module);
             } catch (Exception $e) {
-                $this->logger->warning("Failed to disable module: {$module}", [
+                $this->logger->warning("Failed to disable module: " . $module, [
                     'error' => $e->getMessage()
                 ]);
             }
@@ -1066,7 +1066,7 @@ class EnhancedRestoreService
         $db = \Db::getInstance();
         $prefix = $this->currentEnvironment['prefix'];
         
-        $sql = "UPDATE `{$prefix}configuration` SET `date_upd` = NOW() WHERE `name` LIKE 'PS_%'";
+        $sql = "UPDATE `" . $prefix . "configuration` SET `date_upd` = NOW() WHERE `name` LIKE 'PS_%'";
         
         try {
             $db->execute($sql);
@@ -1101,16 +1101,16 @@ class EnhancedRestoreService
         ];
         
         foreach ($essentialTables as $table) {
-            $sql = "SHOW TABLES LIKE '{$prefix}{$table}'";
+            $sql = "SHOW TABLES LIKE '" . $prefix . $table . "'";
             $result = $db->executeS($sql);
             
             if (empty($result)) {
-                throw new Exception("Essential table missing after restoration: {$prefix}{$table}");
+                throw new Exception("Essential table missing after restoration: " . $prefix . $table);
             }
         }
         
         // Check shop_url table has correct domain
-        $sql = "SELECT domain FROM `{$prefix}shop_url` LIMIT 1";
+        $sql = "SELECT domain FROM `" . $prefix . "shop_url` LIMIT 1";
         $result = $db->getValue($sql);
         
         if ($result && $result !== $migrationConfig['target_domain']) {
