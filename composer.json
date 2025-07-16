@@ -5,7 +5,11 @@
     "license": "AFL-3.0",
     "authors": [
         {
-            "name": "PrestaShop SA",
+            "name": "Javier Trujillo",
+            "email": "javier.trujillo@example.com"
+        },
+        {
+            "name": "PrestaShop SA (Original code)",
             "email": "contact@prestashop.com"
         }
     ],
