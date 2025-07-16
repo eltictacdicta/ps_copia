@@ -93,7 +93,7 @@ class UrlMigrator
         
         try {
             // Update all entries in shop_url table
-            $sql = "UPDATE `" . $prefix . "shop_url` SET 
+            $sql = "UPDATE `{$prefix}shop_url` SET 
                     `domain` = '" . pSQL($cleanDomain) . "',
                     `domain_ssl` = '" . pSQL($cleanDomain) . "'";
             
@@ -151,7 +151,7 @@ class UrlMigrator
             }
             
             try {
-                $sql = "UPDATE `" . $prefix . "configuration` 
+                $sql = "UPDATE `{$prefix}configuration` 
                         SET `value` = '" . pSQL($configValue) . "' 
                         WHERE `name` = '" . pSQL($configKey) . "'";
                 
@@ -270,7 +270,7 @@ class UrlMigrator
         
         foreach ($sslConfigs as $configKey => $configValue) {
             try {
-                $sql = "UPDATE `" . $prefix . "configuration` 
+                $sql = "UPDATE `{$prefix}configuration` 
                         SET `value` = '" . pSQL($configValue) . "' 
                         WHERE `name` = '" . pSQL($configKey) . "'";
                 
@@ -312,7 +312,7 @@ class UrlMigrator
         $cleanDomain = $this->cleanDomain($targetDomain);
         
         // Check shop_url table
-        $sql = "SELECT domain, domain_ssl FROM `" . $prefix . "shop_url` LIMIT 1";
+        $sql = "SELECT domain, domain_ssl FROM `{$prefix}shop_url` LIMIT 1";
         $result = $this->db->getRow($sql);
         
         if (!$result) {
@@ -333,7 +333,7 @@ class UrlMigrator
         }
         
         // Check configuration table
-        $configSql = "SELECT value FROM `" . $prefix . "configuration` WHERE name = 'PS_SHOP_DOMAIN'";
+        $configSql = "SELECT value FROM `{$prefix}configuration` WHERE name = 'PS_SHOP_DOMAIN'";
         $configResult = $this->db->getValue($configSql);
         
         if ($configResult && $configResult !== $cleanDomain) {
@@ -363,10 +363,10 @@ class UrlMigrator
         
         try {
             // Replace both HTTP and HTTPS URLs
-            $sql = "UPDATE `" . $prefix . "configuration` SET 
-                    `value` = REPLACE(`value`, 'http://" . $cleanSourceDomain . "', 'http://" . $cleanTargetDomain . "'),
-                    `value` = REPLACE(`value`, 'https://" . $cleanSourceDomain . "', 'https://" . $cleanTargetDomain . "')
-                    WHERE `value` LIKE '%" . $cleanSourceDomain . "%'";
+            $sql = "UPDATE `{$prefix}configuration` SET 
+                    `value` = REPLACE(`value`, 'http://{$cleanSourceDomain}', 'http://{$cleanTargetDomain}'),
+                    `value` = REPLACE(`value`, 'https://{$cleanSourceDomain}', 'https://{$cleanTargetDomain}')
+                    WHERE `value` LIKE '%{$cleanSourceDomain}%'";
             
             $result = $this->db->execute($sql);
             
@@ -447,7 +447,7 @@ class UrlMigrator
      */
     private function verifyShopUrlUpdate(string $prefix, string $expectedDomain): void
     {
-        $sql = "SELECT COUNT(*) as count FROM `" . $prefix . "shop_url` 
+        $sql = "SELECT COUNT(*) as count FROM `{$prefix}shop_url` 
                 WHERE `domain` = '" . pSQL($expectedDomain) . "' 
                 AND `domain_ssl` = '" . pSQL($expectedDomain) . "'";
         
@@ -566,11 +566,11 @@ class UrlMigrator
         
         try {
             // Count shop_url records
-            $sql = "SELECT COUNT(*) FROM `" . $prefix . "shop_url`";
+            $sql = "SELECT COUNT(*) FROM `{$prefix}shop_url`";
             $summary['shop_url_records'] = $this->db->getValue($sql);
             
             // Get current domain from shop_url
-            $sql = "SELECT domain, domain_ssl FROM `" . $prefix . "shop_url` LIMIT 1";
+            $sql = "SELECT domain, domain_ssl FROM `{$prefix}shop_url` LIMIT 1";
             $result = $this->db->getRow($sql);
             
             if ($result) {
@@ -579,7 +579,7 @@ class UrlMigrator
             }
             
             // Count configuration records
-            $sql = "SELECT COUNT(*) FROM `" . $prefix . "configuration` WHERE name LIKE 'PS_SHOP_DOMAIN%'";
+            $sql = "SELECT COUNT(*) FROM `{$prefix}configuration` WHERE name LIKE 'PS_SHOP_DOMAIN%'";
             $summary['configuration_records'] = $this->db->getValue($sql);
             
         } catch (Exception $e) {

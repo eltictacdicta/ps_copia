@@ -59,6 +59,9 @@ class RestoreService
             'files_file' => $backupInfo['files_file']
         ]);
 
+        // Verify database connectivity before starting
+        $this->verifyDatabaseConnectivity();
+
         // Create safety backup before starting
         $safetyBackupName = $this->createSafetyBackup();
         
@@ -138,6 +141,87 @@ class RestoreService
     }
 
     /**
+     * Verify database connectivity before restoration
+     *
+     * @throws \Exception
+     */
+    private function verifyDatabaseConnectivity(): void
+    {
+        $this->logger->info("Verifying database connectivity");
+        
+        try {
+            $credentials = $this->getCurrentDbCredentials();
+            
+            $this->logger->info("Database connection details", [
+                'host' => $credentials['host'],
+                'user' => $credentials['user'],
+                'database' => $credentials['name'],
+                'environment' => $credentials['environment']
+            ]);
+            
+            // Test database connection
+            $db = \Db::getInstance();
+            
+            // Test basic query
+            $result = $db->getValue("SELECT 1");
+            if ($result != 1) {
+                throw new \Exception("Database connectivity test failed - unexpected result");
+            }
+            
+            // Test if we can access the database name
+            $currentDbName = $db->getValue("SELECT DATABASE()");
+            if (empty($currentDbName)) {
+                throw new \Exception("Could not determine current database name");
+            }
+            
+            // Verify we have necessary privileges
+            $this->verifyDatabasePrivileges($db);
+            
+            $this->logger->info("Database connectivity verified successfully", [
+                'current_database' => $currentDbName,
+                'connection_test' => 'passed'
+            ]);
+            
+        } catch (\Exception $e) {
+            $this->logger->error("Database connectivity verification failed", [
+                'error' => $e->getMessage(),
+                'sql_state' => method_exists($e, 'getCode') ? $e->getCode() : 'unknown'
+            ]);
+            throw new \Exception("Cannot connect to database: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Verify necessary database privileges
+     *
+     * @param \Db $db
+     * @throws \Exception
+     */
+    private function verifyDatabasePrivileges(\Db $db): void
+    {
+        try {
+            // Check if we can create/drop tables (needed for restoration)
+            $testTableName = 'ps_copia_test_' . time();
+            
+            // Try to create a test table
+            $createSql = "CREATE TABLE `{$testTableName}` (id INT PRIMARY KEY)";
+            $db->execute($createSql);
+            
+            // Try to drop the test table
+            $dropSql = "DROP TABLE `{$testTableName}`";
+            $db->execute($dropSql);
+            
+            $this->logger->info("Database privileges verified - can create/drop tables");
+            
+        } catch (\Exception $e) {
+            $this->logger->warning("Database privileges check failed", [
+                'error' => $e->getMessage()
+            ]);
+            throw new \Exception("Insufficient database privileges for restoration: " . $e->getMessage());
+        }
+    }
+
+    /**
      * Analyze backup environment to detect differences with current environment
      *
      * @param string $dbFilePath
@@ -146,6 +230,9 @@ class RestoreService
     private function analyzeBackupEnvironment(string $dbFilePath): array
     {
         $this->logger->info("Analyzing backup environment");
+        
+        // First diagnose the SQL file for potential issues
+        $this->diagnoseSqlFile($dbFilePath);
         
         $analysis = [
             'prefix' => 'ps_',
@@ -181,6 +268,120 @@ class RestoreService
         }
         
         return $analysis;
+    }
+
+    /**
+     * Diagnose SQL file for potential syntax issues
+     *
+     * @param string $dbFilePath
+     */
+    private function diagnoseSqlFile(string $dbFilePath): void
+    {
+        $this->logger->info("Diagnosing SQL file for potential issues", [
+            'file' => basename($dbFilePath)
+        ]);
+        
+        try {
+            $isGzipped = pathinfo($dbFilePath, PATHINFO_EXTENSION) === 'gz';
+            
+            if ($isGzipped) {
+                $handle = gzopen($dbFilePath, 'r');
+                $readFunction = 'gzgets';
+            } else {
+                $handle = fopen($dbFilePath, 'r');
+                $readFunction = 'fgets';
+            }
+            
+            if (!$handle) {
+                $this->logger->warning("Could not open SQL file for diagnosis");
+                return;
+            }
+            
+            $lineNumber = 0;
+            $issues = [];
+            $sampleLines = [];
+            $maxLinesToCheck = 100; // Check first 100 lines for issues
+            
+            while (($line = $readFunction($handle)) !== false && $lineNumber < $maxLinesToCheck) {
+                $lineNumber++;
+                $trimmedLine = trim($line);
+                
+                // Skip empty lines and comments
+                if (empty($trimmedLine) || strpos($trimmedLine, '--') === 0 || strpos($trimmedLine, '/*') === 0) {
+                    continue;
+                }
+                
+                // Collect sample of non-comment lines
+                if (count($sampleLines) < 10) {
+                    $sampleLines[] = [
+                        'line' => $lineNumber,
+                        'content' => substr($trimmedLine, 0, 100) . (strlen($trimmedLine) > 100 ? '...' : '')
+                    ];
+                }
+                
+                // Check for common issues
+                if (preg_match('/LIMIT\s+\d+\s*;?\s*$/i', $trimmedLine)) {
+                    $issues[] = [
+                        'type' => 'potential_limit_issue',
+                        'line' => $lineNumber,
+                        'content' => substr($trimmedLine, 0, 200)
+                    ];
+                }
+                
+                // Check for syntax issues
+                if (preg_match('/[^\w\s`\'\"(),=<>!-]LIMIT/i', $trimmedLine)) {
+                    $issues[] = [
+                        'type' => 'malformed_limit',
+                        'line' => $lineNumber,
+                        'content' => substr($trimmedLine, 0, 200)
+                    ];
+                }
+                
+                // Check for unusual characters before keywords
+                if (preg_match('/[^\s]+(LIMIT|SELECT|FROM|WHERE|ORDER)\s/i', $trimmedLine)) {
+                    $issues[] = [
+                        'type' => 'possible_syntax_issue',
+                        'line' => $lineNumber,
+                        'content' => substr($trimmedLine, 0, 200)
+                    ];
+                }
+            }
+            
+            if ($isGzipped) {
+                gzclose($handle);
+            } else {
+                fclose($handle);
+            }
+            
+            // Log diagnosis results
+            $this->logger->info("SQL file diagnosis completed", [
+                'lines_checked' => $lineNumber,
+                'issues_found' => count($issues),
+                'file_size' => filesize($dbFilePath)
+            ]);
+            
+            if (!empty($sampleLines)) {
+                $this->logger->debug("SQL file sample lines", [
+                    'sample_lines' => $sampleLines
+                ]);
+            }
+            
+            if (!empty($issues)) {
+                $this->logger->warning("Potential SQL syntax issues detected", [
+                    'issues' => $issues
+                ]);
+                
+                // Log each issue separately for better visibility
+                foreach ($issues as $issue) {
+                    $this->logger->warning("SQL Issue detected", $issue);
+                }
+            }
+            
+        } catch (\Exception $e) {
+            $this->logger->warning("Could not diagnose SQL file", [
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 
     /**
@@ -225,37 +426,65 @@ class RestoreService
         
         // Start database transaction
         $this->db = \Db::getInstance();
-        $this->db->execute("START TRANSACTION");
+        
+        try {
+            $this->db->execute("START TRANSACTION");
+            $this->logger->debug("Database transaction started successfully");
+        } catch (\Exception $e) {
+            $this->logger->error("Failed to start database transaction", [
+                'error' => $e->getMessage(),
+                'sql_state' => $e->getCode()
+            ]);
+            throw new \Exception("Cannot start database transaction: " . $e->getMessage());
+        }
         
         try {
             // Step 1: Clean destination database if required
             if ($migrationConfig['clean_destination']) {
+                $this->logger->info("Cleaning destination database");
                 $this->cleanDestinationDatabase($migrationConfig['target_prefix']);
             }
             
             // Step 2: Restore database with prefix adaptation if needed
             if ($migrationConfig['prefix_changed']) {
+                $this->logger->info("Restoring database with prefix adaptation");
                 $this->restoreWithPrefixAdaptation($dbFilePath, $migrationConfig);
             } else {
+                $this->logger->info("Restoring database directly");
                 $this->restoreDirectly($dbFilePath);
             }
             
             // Step 3: Migrate URLs and domains if needed
             if ($migrationConfig['domain_changed']) {
+                $this->logger->info("Migrating URLs and domains");
                 $this->migrateUrlsAndDomains($migrationConfig);
             }
             
             // Step 4: Update environment-specific configurations
+            $this->logger->info("Updating environment-specific configurations");
             $this->updateEnvironmentConfigurations($migrationConfig);
             
             // Commit transaction
             $this->db->execute("COMMIT");
-            
             $this->logger->info("Transactional database restore completed successfully");
             
         } catch (\Exception $e) {
+            $this->logger->error("Database restore failed, rolling back transaction", [
+                'error' => $e->getMessage(),
+                'sql_state' => method_exists($e, 'getCode') ? $e->getCode() : 'unknown',
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             // Rollback transaction
-            $this->db->execute("ROLLBACK");
+            try {
+                $this->db->execute("ROLLBACK");
+                $this->logger->info("Transaction rolled back successfully");
+            } catch (\Exception $rollbackError) {
+                $this->logger->error("Failed to rollback transaction", [
+                    'rollback_error' => $rollbackError->getMessage()
+                ]);
+            }
+            
             throw new \Exception("Database restore failed: " . $e->getMessage());
         }
     }
@@ -415,7 +644,9 @@ class RestoreService
             try {
                 $domain = \Configuration::get('PS_SHOP_DOMAIN');
             } catch (\Exception $e) {
-                // Ignore errors
+                $this->logger->debug("Could not get domain from Configuration", [
+                    'error' => $e->getMessage()
+                ]);
             }
         }
         
@@ -423,18 +654,33 @@ class RestoreService
         if (empty($domain)) {
             try {
                 $db = \Db::getInstance();
-                $result = $db->getRow("SELECT `domain` FROM `" . _DB_PREFIX_ . "shop_url` WHERE `domain` != '' LIMIT 1");
-                if ($result && !empty($result['domain'])) {
-                    $domain = $result['domain'];
+                
+                // First check if the table exists
+                $tableExists = $db->executeS("SHOW TABLES LIKE '" . _DB_PREFIX_ . "shop_url'");
+                if (!empty($tableExists)) {
+                    $sql = "SELECT `domain` FROM `" . _DB_PREFIX_ . "shop_url` WHERE `domain` != '' LIMIT 1";
+                    $this->logger->debug("Executing domain query", ['sql' => $sql]);
+                    
+                    $result = $db->getRow($sql);
+                    if ($result && !empty($result['domain'])) {
+                        $domain = $result['domain'];
+                        $this->logger->debug("Domain found in database", ['domain' => $domain]);
+                    }
+                } else {
+                    $this->logger->debug("shop_url table does not exist yet");
                 }
             } catch (\Exception $e) {
-                // Ignore errors
+                $this->logger->warning("Could not get domain from database", [
+                    'error' => $e->getMessage(),
+                    'sql_state' => method_exists($e, 'getCode') ? $e->getCode() : 'unknown'
+                ]);
             }
         }
         
         // Fallback
         if (empty($domain)) {
             $domain = 'localhost';
+            $this->logger->debug("Using fallback domain", ['domain' => $domain]);
         }
         
         // Clean domain (remove port if present)
@@ -454,9 +700,19 @@ class RestoreService
     {
         try {
             $db = \Db::getInstance();
-            $result = $db->getRow("SELECT VERSION() as version");
-            return $result['version'] ?? '';
+            $sql = "SELECT VERSION() as version";
+            $this->logger->debug("Getting MySQL version", ['sql' => $sql]);
+            
+            $result = $db->getRow($sql);
+            $version = $result['version'] ?? '';
+            
+            $this->logger->debug("MySQL version retrieved", ['version' => $version]);
+            return $version;
         } catch (\Exception $e) {
+            $this->logger->warning("Could not get MySQL version", [
+                'error' => $e->getMessage(),
+                'sql_state' => method_exists($e, 'getCode') ? $e->getCode() : 'unknown'
+            ]);
             return '';
         }
     }
@@ -543,6 +799,19 @@ class RestoreService
         $credentials = $this->getCurrentDbCredentials();
         $isGzipped = pathinfo($dbFilePath, PATHINFO_EXTENSION) === 'gz';
         
+        $this->logger->info("Database restoration details", [
+            'file_path' => $dbFilePath,
+            'is_gzipped' => $isGzipped,
+            'file_exists' => file_exists($dbFilePath),
+            'file_size' => file_exists($dbFilePath) ? filesize($dbFilePath) : 0,
+            'host' => $credentials['host'],
+            'user' => $credentials['user'],
+            'database' => $credentials['name']
+        ]);
+        
+        // Test MySQL client availability and basic connectivity
+        $this->testMysqlClient($credentials);
+        
         if ($isGzipped) {
             $command = sprintf(
                 'zcat %s | mysql --host=%s --user=%s --password=%s %s',
@@ -563,13 +832,236 @@ class RestoreService
             );
         }
 
+        // Log the command (without password for security)
+        $safeCommand = str_replace($credentials['password'], '***', $command);
+        $this->logger->info("Executing MySQL restore command", [
+            'command' => $safeCommand
+        ]);
+
+        $output = [];
+        $returnVar = 0;
         secureSysCommand($command . ' 2>&1', $output, $returnVar);
 
         if ($returnVar !== 0) {
-            throw new \Exception("Database restoration failed: " . implode("\n", $output));
+            $errorOutput = implode("\n", $output);
+            
+            $this->logger->error("MySQL restore command failed", [
+                'return_code' => $returnVar,
+                'command' => $safeCommand,
+                'output' => $errorOutput
+            ]);
+            
+            // Extract specific SQL error information
+            $sqlError = $this->extractSqlErrorFromOutput($errorOutput);
+            if ($sqlError) {
+                $this->logger->error("SQL Error details", $sqlError);
+                
+                // Try to get more context about the specific line that failed
+                $this->analyzeFailedSqlLine($dbFilePath, $sqlError['line'] ?? null);
+                
+                throw new \Exception("Database restoration failed with SQL error: " . $sqlError['message'] . 
+                                   " (Line: " . ($sqlError['line'] ?? 'unknown') . ")");
+            }
+            
+            throw new \Exception("Database restoration failed (code: {$returnVar}): " . $errorOutput);
         }
 
         $this->logger->info("Database restored successfully");
+    }
+
+    /**
+     * Test MySQL client connectivity
+     *
+     * @param array $credentials
+     * @throws \Exception
+     */
+    private function testMysqlClient(array $credentials): void
+    {
+        $this->logger->info("Testing MySQL client connectivity");
+        
+        // Test if mysql command is available
+        $testCommand = 'mysql --version';
+        $output = [];
+        $returnVar = 0;
+        secureSysCommand($testCommand . ' 2>&1', $output, $returnVar);
+        
+        if ($returnVar !== 0) {
+            throw new \Exception("MySQL client is not available: " . implode("\n", $output));
+        }
+        
+        $mysqlVersion = implode("\n", $output);
+        $this->logger->info("MySQL client available", ['version' => $mysqlVersion]);
+        
+        // Test basic connectivity
+        $connectTestCommand = sprintf(
+            'mysql --host=%s --user=%s --password=%s %s -e "SELECT 1"',
+            escapeshellarg($credentials['host']),
+            escapeshellarg($credentials['user']),
+            escapeshellarg($credentials['password']),
+            escapeshellarg($credentials['name'])
+        );
+        
+        $output = [];
+        $returnVar = 0;
+        secureSysCommand($connectTestCommand . ' 2>&1', $output, $returnVar);
+        
+        if ($returnVar !== 0) {
+            $safeCommand = str_replace($credentials['password'], '***', $connectTestCommand);
+            $this->logger->error("MySQL connectivity test failed", [
+                'command' => $safeCommand,
+                'output' => implode("\n", $output)
+            ]);
+            throw new \Exception("Cannot connect to MySQL database: " . implode("\n", $output));
+        }
+        
+        $this->logger->info("MySQL connectivity test passed");
+    }
+
+    /**
+     * Analyze the specific line that caused SQL failure
+     *
+     * @param string $dbFilePath
+     * @param int|null $failedLine
+     */
+    private function analyzeFailedSqlLine(string $dbFilePath, ?int $failedLine): void
+    {
+        if (!$failedLine) {
+            $this->logger->warning("No line number provided for failed SQL analysis");
+            return;
+        }
+        
+        $this->logger->info("Analyzing failed SQL line", ['line_number' => $failedLine]);
+        
+        try {
+            $isGzipped = pathinfo($dbFilePath, PATHINFO_EXTENSION) === 'gz';
+            
+            if ($isGzipped) {
+                $handle = gzopen($dbFilePath, 'r');
+                $readFunction = 'gzgets';
+            } else {
+                $handle = fopen($dbFilePath, 'r');
+                $readFunction = 'fgets';
+            }
+            
+            if (!$handle) {
+                $this->logger->warning("Could not open SQL file for line analysis");
+                return;
+            }
+            
+            $currentLine = 0;
+            $contextLines = [];
+            $targetLine = null;
+            $contextRange = 5; // Show 5 lines before and after the failed line
+            
+            while (($line = $readFunction($handle)) !== false) {
+                $currentLine++;
+                
+                // Collect context around the failed line
+                if ($currentLine >= ($failedLine - $contextRange) && $currentLine <= ($failedLine + $contextRange)) {
+                    $contextLines[] = [
+                        'line_number' => $currentLine,
+                        'content' => rtrim($line),
+                        'is_failed_line' => $currentLine == $failedLine
+                    ];
+                }
+                
+                if ($currentLine == $failedLine) {
+                    $targetLine = rtrim($line);
+                }
+                
+                // Stop reading if we've passed our context range
+                if ($currentLine > ($failedLine + $contextRange)) {
+                    break;
+                }
+            }
+            
+            if ($isGzipped) {
+                gzclose($handle);
+            } else {
+                fclose($handle);
+            }
+            
+            if ($targetLine) {
+                $this->logger->error("Failed SQL line content", [
+                    'line_number' => $failedLine,
+                    'content' => $targetLine,
+                    'length' => strlen($targetLine)
+                ]);
+                
+                // Analyze the specific line for issues
+                $this->analyzeSqlLineIssues($targetLine, $failedLine);
+            }
+            
+            if (!empty($contextLines)) {
+                $this->logger->info("SQL context around failed line", [
+                    'context' => $contextLines
+                ]);
+            }
+            
+        } catch (\Exception $e) {
+            $this->logger->warning("Could not analyze failed SQL line", [
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Analyze specific issues in a SQL line
+     *
+     * @param string $sqlLine
+     * @param int $lineNumber
+     */
+    private function analyzeSqlLineIssues(string $sqlLine, int $lineNumber): void
+    {
+        $issues = [];
+        
+        // Check for common issues
+        if (preg_match('/LIMIT\s+\d+\s*;?\s*$/', $sqlLine)) {
+            $issues[] = "Line ends with LIMIT clause";
+        }
+        
+        if (preg_match('/[^\x20-\x7E]/', $sqlLine)) {
+            $issues[] = "Contains non-ASCII characters";
+        }
+        
+        if (preg_match('/\s+$/', $sqlLine)) {
+            $issues[] = "Has trailing whitespace";
+        }
+        
+        if (strlen($sqlLine) > 1000) {
+            $issues[] = "Very long line (" . strlen($sqlLine) . " characters)";
+        }
+        
+        // Check for unmatched quotes
+        $singleQuotes = substr_count($sqlLine, "'") - substr_count($sqlLine, "\\'");
+        $doubleQuotes = substr_count($sqlLine, '"') - substr_count($sqlLine, '\\"');
+        
+        if ($singleQuotes % 2 !== 0) {
+            $issues[] = "Unmatched single quotes";
+        }
+        
+        if ($doubleQuotes % 2 !== 0) {
+            $issues[] = "Unmatched double quotes";
+        }
+        
+        // Check for unmatched parentheses
+        $openParens = substr_count($sqlLine, '(');
+        $closeParens = substr_count($sqlLine, ')');
+        
+        if ($openParens !== $closeParens) {
+            $issues[] = "Unmatched parentheses (open: $openParens, close: $closeParens)";
+        }
+        
+        if (!empty($issues)) {
+            $this->logger->warning("SQL line issues detected", [
+                'line_number' => $lineNumber,
+                'issues' => $issues
+            ]);
+        } else {
+            $this->logger->info("No obvious issues detected in SQL line", [
+                'line_number' => $lineNumber
+            ]);
+        }
     }
 
     /**
@@ -669,7 +1161,7 @@ class RestoreService
         $prefix = $migrationConfig['target_prefix'];
         
         // Update shop_url table
-        $sql = "UPDATE `" . $prefix . "shop_url` SET 
+        $sql = "UPDATE `{$prefix}shop_url` SET 
                 `domain` = '" . pSQL($targetDomain) . "',
                 `domain_ssl` = '" . pSQL($targetDomain) . "'";
         $db->execute($sql);
@@ -681,7 +1173,7 @@ class RestoreService
         ];
         
         foreach ($domainConfigs as $configKey => $configValue) {
-            $sql = "UPDATE `" . $prefix . "configuration` 
+            $sql = "UPDATE `{$prefix}configuration` 
                     SET `value` = '" . pSQL($configValue) . "' 
                     WHERE `name` = '" . pSQL($configKey) . "'";
             $db->execute($sql);
@@ -710,7 +1202,7 @@ class RestoreService
         
         foreach ($problematicModules as $moduleName) {
             try {
-                $sql = "UPDATE `" . $prefix . "module` SET `active` = 0 WHERE `name` = '" . pSQL($moduleName) . "'";
+                $sql = "UPDATE `{$prefix}module` SET `active` = 0 WHERE `name` = '" . pSQL($moduleName) . "'";
                 $db->execute($sql);
             } catch (\Exception $e) {
                 // Ignore errors for modules that don't exist
@@ -727,7 +1219,7 @@ class RestoreService
         
         foreach ($cacheConfigs as $configKey => $configValue) {
             try {
-                $sql = "UPDATE `" . $prefix . "configuration` 
+                $sql = "UPDATE `{$prefix}configuration` 
                         SET `value` = '" . pSQL($configValue) . "' 
                         WHERE `name` = '" . pSQL($configKey) . "'";
                 $db->execute($sql);
@@ -760,23 +1252,58 @@ class RestoreService
         ];
         
         foreach ($essentialTables as $table) {
-            $sql = "SHOW TABLES LIKE '" . $prefix . $table . "'";
-            $result = $db->executeS($sql);
-            
-            if (empty($result)) {
-                throw new \Exception("Essential table missing after restoration: " . $prefix . $table);
+            try {
+                $sql = "SHOW TABLES LIKE '" . $prefix . $table . "'";
+                $this->logger->debug("Checking table existence", [
+                    'table' => $prefix . $table,
+                    'sql' => $sql
+                ]);
+                
+                $result = $db->executeS($sql);
+                
+                if (empty($result)) {
+                    throw new \Exception("Essential table missing after restoration: " . $prefix . $table);
+                }
+                
+                $this->logger->debug("Table verified", ['table' => $prefix . $table]);
+            } catch (\Exception $e) {
+                $this->logger->error("Table verification failed", [
+                    'table' => $prefix . $table,
+                    'error' => $e->getMessage(),
+                    'sql_state' => method_exists($e, 'getCode') ? $e->getCode() : 'unknown'
+                ]);
+                throw new \Exception("Table verification failed for {$prefix}{$table}: " . $e->getMessage());
             }
         }
         
         // Verify domain configuration
-        $sql = "SELECT `domain` FROM `" . $prefix . "shop_url` LIMIT 1";
-        $result = $db->getRow($sql);
-        
-        if (empty($result) || $result['domain'] !== $migrationConfig['target_domain']) {
-            $this->logger->warning("Domain verification failed", [
-                'expected' => $migrationConfig['target_domain'],
-                'actual' => $result['domain'] ?? 'null'
+        try {
+            $sql = "SELECT `domain` FROM `{$prefix}shop_url` LIMIT 1";
+            $this->logger->debug("Verifying domain configuration", [
+                'sql' => $sql,
+                'expected_domain' => $migrationConfig['target_domain']
             ]);
+            
+            $result = $db->getRow($sql);
+            
+            if (empty($result) || $result['domain'] !== $migrationConfig['target_domain']) {
+                $this->logger->warning("Domain verification failed", [
+                    'expected' => $migrationConfig['target_domain'],
+                    'actual' => $result['domain'] ?? 'null'
+                ]);
+            } else {
+                $this->logger->info("Domain verification successful", [
+                    'domain' => $result['domain']
+                ]);
+            }
+        } catch (\Exception $e) {
+            $this->logger->error("Domain verification query failed", [
+                'error' => $e->getMessage(),
+                'sql_state' => method_exists($e, 'getCode') ? $e->getCode() : 'unknown',
+                'sql' => $sql
+            ]);
+            // Don't throw here, just log the warning
+            $this->logger->warning("Skipping domain verification due to error");
         }
         
         $this->logger->info("Post-restoration verification completed successfully");
@@ -1390,6 +1917,83 @@ class RestoreService
         }
     }
 
+    /**
+     * Extract SQL error information from command output
+     *
+     * @param string $output
+     * @return array|null
+     */
+    private function extractSqlErrorFromOutput(string $output): ?array
+    {
+        $patterns = [
+            // MySQL/MariaDB error with line number
+            '/ERROR \d+ \(\d+\) at line (\d+): (.+)/i',
+            // SQLSTATE error with line number
+            '/SQLSTATE\[(\w+)\]: (.+?) at line (\d+)/i',
+            // MariaDB syntax error with line number
+            '/You have an error in your SQL syntax.*?at line (\d+)/i',
+            // Generic error with line number
+            '/error.*?at line (\d+)/i',
+            // MySQL error without line number
+            '/ERROR \d+ \(\d+\): (.+)/i',
+            // SQLSTATE without line number
+            '/SQLSTATE\[(\w+)\]: (.+)/i',
+        ];
+        
+        $this->logger->debug("Analyzing error output", [
+            'output_length' => strlen($output),
+            'output_sample' => substr($output, 0, 500)
+        ]);
+        
+        foreach ($patterns as $index => $pattern) {
+            if (preg_match($pattern, $output, $matches)) {
+                $this->logger->debug("Error pattern matched", [
+                    'pattern_index' => $index,
+                    'pattern' => $pattern,
+                    'matches' => $matches
+                ]);
+                
+                $errorInfo = [
+                    'pattern_matched' => $index,
+                    'full_output' => $output
+                ];
+                
+                // Extract line number if available
+                if (isset($matches[1]) && is_numeric($matches[1])) {
+                    $errorInfo['line'] = (int)$matches[1];
+                    $errorInfo['message'] = $matches[2] ?? $matches[0];
+                } elseif (isset($matches[3]) && is_numeric($matches[3])) {
+                    $errorInfo['line'] = (int)$matches[3];
+                    $errorInfo['message'] = $matches[2] ?? $matches[1] ?? $matches[0];
+                } else {
+                    $errorInfo['line'] = null;
+                    $errorInfo['message'] = $matches[1] ?? $matches[0];
+                }
+                
+                return $errorInfo;
+            }
+        }
+        
+        // If no specific pattern found, check for general error keywords
+        $errorKeywords = ['error', 'sqlstate', 'syntax', 'failed', 'denied'];
+        $lowerOutput = strtolower($output);
+        
+        foreach ($errorKeywords as $keyword) {
+            if (strpos($lowerOutput, $keyword) !== false) {
+                $this->logger->debug("Error keyword found", ['keyword' => $keyword]);
+                
+                return [
+                    'line' => null,
+                    'message' => $output,
+                    'full_output' => $output,
+                    'keyword_matched' => $keyword
+                ];
+            }
+        }
+        
+        $this->logger->debug("No error patterns matched in output");
+        return null;
+    }
 
 
     /**
