@@ -1,4 +1,10 @@
-# Instalación del Módulo PS_Copia
+# Instalación del Módulo PS_Copia v1.2.1
+
+## Requisitos del Sistema
+- PrestaShop 1.7.0 o superior
+- PHP 5.6 o superior
+- Extensiones PHP: `zip`, `mysqli`
+- Permisos de escritura en el servidor
 
 ## Pasos de Instalación
 

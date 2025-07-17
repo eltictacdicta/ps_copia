@@ -1,32 +1,37 @@
 # 🔒 PS_Copia - Asistente de Copias de Seguridad para PrestaShop
 
-![Versión](https://img.shields.io/badge/versión-1.1.0-brightgreen.svg)
+![Versión](https://img.shields.io/badge/versión-1.2.1-brightgreen.svg)
 ![PrestaShop](https://img.shields.io/badge/PrestaShop-1.7.0+-blue.svg)
 ![PHP](https://img.shields.io/badge/PHP-5.6+-purple.svg)
 ![Licencia](https://img.shields.io/badge/licencia-AFL--3.0-orange.svg)
 
-**PS_Copia** es un módulo avanzado de PrestaShop diseñado para crear y restaurar copias de seguridad completas de tu tienda online. Optimizado para sitios grandes y con funcionalidades avanzadas para garantizar una migración y backup seguros.
+**PS_Copia** es un módulo avanzado de PrestaShop diseñado para crear y restaurar copias de seguridad completas de tu tienda online. Refactorizado completamente en la versión 1.2.1 con arquitectura de servicios y optimizado para sitios grandes con funcionalidades avanzadas para garantizar una migración y backup seguros.
 
 ## 🚀 Características Principales
 
-### ✨ **Gestión Inteligente de Backups**
+### ✨ **Arquitectura de Servicios (v1.2.1)**
+- 🏗️ **Refactorización completa** con arquitectura de servicios especializados
+- 🔧 **BackupService**: Gestión de copias de seguridad
+- 🔄 **RestoreService**: Gestión avanzada de restauración con migración automática
+- 📤 **ImportExportService**: Operaciones de importación/exportación
+- 📁 **FileManagerService**: Gestión de archivos y uploads al servidor
+- ✅ **ValidationService**: Validaciones del sistema
+- 📊 **ResponseHelper**: Gestión optimizada de respuestas AJAX
+
+### 💪 **Gestión Inteligente de Backups**
 - 🔄 **Creación automática** de copias de seguridad completas
 - 📦 **Restauración integral** desde backups existentes
+- 🧠 **Restauración inteligente** con adaptación automática del entorno
 - 🔍 **Verificación de integridad** automática
 - 🏷️ **Etiquetado y organización** de backups
 
-### 💪 **Optimizado para Sitios Grandes**
-- 🎯 **Detección automática** de sitios > 500MB
-- ⚡ **Procesamiento por chunks** (grupos de 100 archivos)
-- 🌊 **Streaming para archivos grandes** (> 50MB)
-- 🧠 **Gestión optimizada de memoria** (< 100MB constante)
-- ⏱️ **Prevención automática de timeouts**
-
 ### 🌐 **Funcionalidades Avanzadas**
 - 📤 **Importar desde servidor** - Subir via FTP/SFTP sin límites
-- 🔧 **Migración automática** entre dominios
+- 🔧 **Migración automática** entre dominios y prefijos de tabla
 - 🛡️ **Verificación de seguridad** multi-capa
 - 📊 **Interfaz visual mejorada** con progreso en tiempo real
+- 🔄 **Restauración selectiva** (solo base de datos o solo archivos)
+- 📥 **Exportación de backups** para migración externa
 
 ### 🏗️ **Compatibilidad Técnica**
 - ✅ PrestaShop 1.7.0 y superior
@@ -52,7 +57,7 @@
 ### **Extensiones PHP Requeridas:**
 - `zip` - Compresión de archivos
 - `mysqli` - Conexión base de datos
-- `curl` - Transferencias HTTP
+- `curl` - Transferencias HTTP (opcional)
 - `json` - Procesamiento datos
 
 ## 📦 Instalación
@@ -72,15 +77,15 @@ composer install --optimize-autoloader
 ### **Verificación Post-Instalación**
 - ✅ Comprueba que aparece en **Herramientas > Asistente de Copias**
 - ✅ Verifica permisos de escritura en `/admin/ps_copia/`
-- ✅ Ejecuta la suite de pruebas: `php test_large_sites.php`
+- ✅ Verifica que se crearon las pestañas del módulo correctamente
 
 ## 🎯 Uso del Módulo
 
 ### **Crear Copia de Seguridad**
 1. Ve a **Herramientas > Asistente de Copias**
 2. Selecciona **"Crear Copia de Seguridad"**
-3. Configura opciones (archivos, base de datos, configuración)
-4. Inicia el proceso _(detección automática para sitios grandes)_
+3. Configura opciones (completa, solo DB, solo archivos)
+4. Inicia el proceso con detección automática de optimizaciones
 
 ### **Restaurar desde Backup**
 
@@ -93,27 +98,35 @@ composer install --optimize-autoloader
 1. Sube tu backup via **FTP/SFTP** a `/admin/ps_copia/uploads/`
 2. Clic en **"Importar desde Servidor"**
 3. Selecciona tu archivo de la lista
-4. Inicia la importación _(procesamiento optimizado automático)_
+4. Inicia la importación con procesamiento optimizado automático
 
-### **Migración entre Dominios**
-- ✅ URLs actualizadas automáticamente
-- ✅ Configuración adaptada al nuevo entorno
-- ✅ Verificación post-migración
+### **Restauración Inteligente**
+- ✅ **Migración automática** de URLs y configuración
+- ✅ **Adaptación de prefijos** de tabla automática
+- ✅ **Verificación post-migración** completa
+- ✅ **Corrección automática** de problemas comunes
+
+### **Restauración Selectiva**
+- 🗄️ **Solo Base de Datos**: Restaura únicamente la BD desde backup completo
+- 📁 **Solo Archivos**: Restaura únicamente archivos desde backup completo
+- 🎯 **Personalizada**: Combina opciones según necesidades
 
 ## 🛠️ Funcionalidades Avanzadas
 
-### **Detección Automática de Sitios Grandes**
-```php
-// El módulo detecta automáticamente y optimiza para:
-- Sitios > 500MB → Modo chunked
-- Archivos > 50MB → Streaming
-- Memoria > 80% → Limpieza agresiva
+### **Arquitectura de Servicios (v1.2.1)**
 ```
+Controllers/
+├── AdminPsCopiaController.php      # Interfaz principal
+└── AdminPsCopiaAjaxController.php  # API AJAX refactorizada
 
-### **Procesamiento por Chunks**
-- Procesa archivos en grupos de 100
-- Limpia memoria después de cada chunk
-- Mantiene progreso visual actualizado
+Services/
+├── BackupService.php               # Creación de backups
+├── RestoreService.php              # Restauración avanzada
+├── ImportExportService.php         # Import/Export
+├── FileManagerService.php          # Gestión de archivos
+├── ValidationService.php           # Validaciones
+└── ResponseHelper.php              # Respuestas AJAX
+```
 
 ### **Gestión de Uploads Servidor**
 ```
@@ -123,19 +136,17 @@ composer install --optimize-autoloader
 └── backup_sitio.zip   # Tu backup grande
 ```
 
-### **Suite de Pruebas Automatizadas**
-```bash
-cd modules/ps_copia/
-php test_large_sites.php
-
-✅ testMemoryLimitParsing      - OK
-✅ testFileSizeEstimation      - OK
-✅ testChunkedProcessing       - OK
-✅ testStreamingFileHandling   - OK
-✅ testTimeoutPrevention       - OK
-✅ testLargeFileDetection      - OK
-✅ testMemoryCleanup           - OK
-```
+### **Operaciones Disponibles via AJAX**
+- `create_backup` - Crear backup
+- `restore_backup` - Restauración estándar
+- `restore_backup_smart` - Restauración inteligente
+- `restore_database_only` - Solo BD
+- `restore_files_only` - Solo archivos
+- `export_backup` - Exportar backup
+- `import_backup` - Importar backup
+- `scan_server_uploads` - Escanear uploads servidor
+- `import_from_server` - Importar desde servidor
+- `validate_backup` - Validar integridad
 
 ## 🚦 Solución de Problemas
 
@@ -145,7 +156,7 @@ php test_large_sites.php
 ```
 ❌ Fatal error: Allowed memory size exhausted
 ✅ Solución: El módulo gestiona memoria automáticamente
-   - Verifica que está en versión 1.1.0+
+   - Verifica que está en versión 1.2.1+
    - Para sitios >2GB: aumentar memory_limit a 1GB
 ```
 
@@ -165,9 +176,18 @@ php test_large_sites.php
    - Upload independiente de PHP
 ```
 
+#### Problemas de Migración
+```
+❌ URLs o prefijos incorrectos después de restaurar
+✅ Solución: Usa "Restauración Inteligente"
+   - Migración automática de URLs
+   - Adaptación automática de prefijos
+   - Verificación post-restauración
+```
+
 ### **Verificación de Estado**
 ```bash
-# Comprobar configuración del módulo
+# Comprobar uploads al servidor
 curl -X POST admin/index.php?controller=AdminPsCopiaAjax&action=scan_server_uploads
 
 # Verificar permisos
@@ -185,18 +205,25 @@ ls -la admin/ps_copia/uploads/
 
 ## 🔄 Changelog
 
-### **Versión 1.1.0** _(Actual)_
-- ✨ **Nuevo**: Funcionalidad "Importar desde Servidor"
-- ⚡ **Mejorado**: Optimizaciones para sitios grandes (hasta 2GB)
-- 🔧 **Nuevo**: Detección automática y procesamiento inteligente
-- 🛡️ **Mejorado**: Seguridad multi-capa y validaciones
-- 📊 **Nuevo**: Interfaz visual mejorada con progreso detallado
-- 🧪 **Nuevo**: Suite de pruebas automatizadas
-- 📚 **Mejorado**: Documentación técnica completa
+### **Versión 1.2.1** _(Actual)_
+- 🏗️ **Nuevo**: Refactorización completa con arquitectura de servicios
+- 🧠 **Nuevo**: Restauración inteligente con migración automática
+- 🔧 **Mejorado**: Manejo robusto de prefijos de tabla y URLs
+- 📤 **Mejorado**: Sistema de uploads al servidor optimizado
+- 🛡️ **Mejorado**: Validaciones de seguridad multi-capa
+- 📊 **Mejorado**: Interfaz con mejor feedback y progreso
+- 🔄 **Nuevo**: Restauración selectiva (solo BD o solo archivos)
+- 📥 **Nuevo**: Exportación de backups para migración externa
+- 🧪 **Mejorado**: Suite de tests ampliada y robusta
 
-### **Versión 1.0.1**
-- 🐛 Correcciones menores
-- 📝 Mejoras en traducciones
+### **Versión 1.2.0**
+- 🔧 Refactorización inicial del controlador
+- 📚 Mejoras en documentación técnica
+
+### **Versión 1.1.0**
+- ✨ Funcionalidad "Importar desde Servidor"
+- ⚡ Optimizaciones para sitios grandes
+- 🔧 Detección automática y procesamiento inteligente
 
 ### **Versión 1.0.0**
 - 🎉 Lanzamiento inicial
@@ -204,10 +231,10 @@ ls -la admin/ps_copia/uploads/
 
 ## 📚 Documentación Adicional
 
-- [`INSTALL.md`](INSTALL.md) - Guía detallada de instalación
-- [`UPLOADS_SERVIDOR.md`](UPLOADS_SERVIDOR.md) - Uso avanzado de uploads
-- [`OPTIMIZACIONES_SITIOS_GRANDES.md`](OPTIMIZACIONES_SITIOS_GRANDES.md) - Detalles técnicos
-- [`RESUMEN_IMPLEMENTACION.md`](RESUMEN_IMPLEMENTACION.md) - Características implementadas
+Los siguientes documentos están disponibles para referencia técnica:
+- `LICENSE.md` - Licencia del módulo
+- `INSTALL.md` - Guía detallada de instalación
+- `CHANGELOG_v1.2.md` - Detalles de la versión actual
 
 ## 🛡️ Seguridad
 
@@ -217,6 +244,7 @@ ls -la admin/ps_copia/uploads/
 - 📁 **Archivos .htaccess automáticos** - Protección del directorio uploads
 - 🚫 **Restricción de acceso** - Solo administradores autorizados
 - ✅ **Verificación de integridad** - Validación de estructura de backups
+- 🔐 **Validación de servicios** - Arquitectura de servicios con validaciones
 
 ### **Recomendaciones**
 - Usar conexiones HTTPS para admin
@@ -249,7 +277,7 @@ Para soporte técnico y consultas:
 
 ## ⚠️ **IMPORTANTE - Disclaimer**
 
-**Este es un proyecto propio desarrollado de forma independiente.** Aunque ha sido probado exhaustivamente y cuenta con una suite de pruebas automatizadas, **se recomienda usarlo con precaución** en entornos de producción.
+**Este es un proyecto propio desarrollado de forma independiente.** Aunque ha sido probado exhaustivamente y cuenta con una arquitectura robusta de servicios, **se recomienda usarlo con precaución** en entornos de producción.
 
 **El autor no se hace responsable de cualquier problema, pérdida de datos o daños** que puedan surgir del uso de este módulo. Se recomienda encarecidamente:
 
