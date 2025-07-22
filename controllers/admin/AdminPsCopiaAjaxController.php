@@ -218,6 +218,9 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
                 case 'export_backup':
                     $this->handleExportBackup();
                     break;
+                case 'export_standalone_installer':
+                    $this->handleExportStandaloneInstaller();
+                    break;
                 case 'import_backup':
                     $this->handleImportBackup();
                     break;
@@ -481,6 +484,51 @@ class AdminPsCopiaAjaxController extends ModuleAdminController
         try {
             $result = $this->importExportService->exportBackup($backupName);
             $this->responseHelper->ajaxSuccess('Archivo de exportación creado correctamente', $result);
+        } catch (Exception $e) {
+            $this->responseHelper->ajaxError($e->getMessage());
+        }
+    }
+
+    /**
+     * Handle standalone installer export - create a downloadable PHP installer that works with normal export ZIP
+     */
+    private function handleExportStandaloneInstaller(): void
+    {
+        $backupName = Tools::getValue('backup_name');
+        
+        if (empty($backupName)) {
+            $this->responseHelper->ajaxError('Nombre del backup requerido');
+            return;
+        }
+
+        try {
+            $result = $this->importExportService->exportStandaloneInstaller($backupName);
+            
+            // Preparar mensaje detallado para el usuario
+            $message = 'Instalador simple creado correctamente. ';
+            $message .= 'Para instalar en otro servidor necesitas descargar 2 archivos:';
+            
+            $instructions = [
+                'files_to_download' => [
+                    [
+                        'name' => $result['installer_filename'],
+                        'description' => 'Archivo instalador PHP',
+                        'size' => $result['size_formatted']
+                    ],
+                    [
+                        'name' => $result['export_zip_filename'],
+                        'description' => 'Archivo ZIP de backup',
+                        'size' => $result['export_zip_size_formatted']
+                    ]
+                ],
+                'installation_steps' => $result['instructions']
+            ];
+            
+            // Agregar información adicional al resultado
+            $result['message_details'] = $instructions;
+            $result['total_files'] = 2;
+            
+            $this->responseHelper->ajaxSuccess($message, $result);
         } catch (Exception $e) {
             $this->responseHelper->ajaxError($e->getMessage());
         }

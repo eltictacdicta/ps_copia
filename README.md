@@ -1,15 +1,15 @@
 # 🔒 PS_Copia - Asistente de Copias de Seguridad para PrestaShop
 
-![Versión](https://img.shields.io/badge/versión-1.2.1-brightgreen.svg)
+![Versión](https://img.shields.io/badge/versión-1.3.0-brightgreen.svg)
 ![PrestaShop](https://img.shields.io/badge/PrestaShop-1.7.0+-blue.svg)
 ![PHP](https://img.shields.io/badge/PHP-5.6+-purple.svg)
 ![Licencia](https://img.shields.io/badge/licencia-AFL--3.0-orange.svg)
 
-**PS_Copia** es un módulo avanzado de PrestaShop diseñado para crear y restaurar copias de seguridad completas de tu tienda online. Refactorizado completamente en la versión 1.2.1 con arquitectura de servicios y optimizado para sitios grandes con funcionalidades avanzadas para garantizar una migración y backup seguros.
+**PS_Copia** es un módulo avanzado de PrestaShop diseñado para crear y restaurar copias de seguridad completas de tu tienda online. Refactorizado completamente en la versión 1.2.1 con arquitectura de servicios y ahora en la v1.3.0 incluye el revolucionario **Instalador Simple AJAX** para migraciones sin dependencias de PrestaShop.
 
 ## 🚀 Características Principales
 
-### ✨ **Arquitectura de Servicios (v1.2.1)**
+### ✨ **Arquitectura de Servicios (v1.2.1+)**
 - 🏗️ **Refactorización completa** con arquitectura de servicios especializados
 - 🔧 **BackupService**: Gestión de copias de seguridad
 - 🔄 **RestoreService**: Gestión avanzada de restauración con migración automática
@@ -17,6 +17,14 @@
 - 📁 **FileManagerService**: Gestión de archivos y uploads al servidor
 - ✅ **ValidationService**: Validaciones del sistema
 - 📊 **ResponseHelper**: Gestión optimizada de respuestas AJAX
+
+### 🚀 **Instalador Simple AJAX (v1.3.0)**
+- 🌐 **Instalador independiente** sin dependencias de PrestaShop
+- ⚡ **Extracción por chunks** para archivos de cualquier tamaño
+- 📊 **Progreso en tiempo real** con barras visuales y logs
+- 🔄 **Tecnología AJAX** para evitar timeouts y bloqueos
+- 🛠️ **Instalación guiada** paso a paso con interfaz moderna
+- 📁 **Extracción inteligente** que corrige el problema de archivos no extraídos
 
 ### 💪 **Gestión Inteligente de Backups**
 - 🔄 **Creación automática** de copias de seguridad completas
@@ -32,6 +40,9 @@
 - 📊 **Interfaz visual mejorada** con progreso en tiempo real
 - 🔄 **Restauración selectiva** (solo base de datos o solo archivos)
 - 📥 **Exportación de backups** para migración externa
+- 🎯 **Instalador Simple AJAX** - Migración independiente estilo Duplicator
+- ⚡ **Manejo de archivos grandes** sin limitaciones de servidor
+- 🔧 **Configuración automática** de dominios y URLs
 
 ### 🏗️ **Compatibilidad Técnica**
 - ✅ PrestaShop 1.7.0 y superior
@@ -111,6 +122,26 @@ composer install --optimize-autoloader
 - 📁 **Solo Archivos**: Restaura únicamente archivos desde backup completo
 - 🎯 **Personalizada**: Combina opciones según necesidades
 
+### **Instalador Simple AJAX (¡NUEVO!)**
+#### **Para Migraciones y Nuevas Instalaciones**
+1. Ve a **Backups Disponibles** en tu tienda actual
+2. Selecciona un backup y haz clic en **"Instalador"** 📋
+3. Descarga **2 archivos**:
+   - `ps_copias_installer_simple.php` (instalador AJAX)
+   - `backup_XXXX_export.zip` (backup estándar)
+4. **En el servidor destino**:
+   - Sube ambos archivos al directorio raíz
+   - Accede a `http://tu-dominio.com/ps_copias_installer_simple.php`
+   - Sigue el proceso guiado con **AJAX en tiempo real**
+
+#### **Ventajas del Instalador AJAX:**
+- ✅ **Sin dependencias** de PrestaShop en servidor destino
+- ✅ **Manejo de archivos grandes** con extracción por chunks
+- ✅ **Progreso visual** en tiempo real con logs detallados  
+- ✅ **Recuperación de errores** automática
+- ✅ **Estilo Duplicator** familiar y confiable
+- ✅ **Configuración automática** de URLs y dominios
+
 ## 🛠️ Funcionalidades Avanzadas
 
 ### **Arquitectura de Servicios (v1.2.1)**
@@ -137,6 +168,8 @@ Services/
 ```
 
 ### **Operaciones Disponibles via AJAX**
+
+#### **En el Módulo Principal:**
 - `create_backup` - Crear backup
 - `restore_backup` - Restauración estándar
 - `restore_backup_smart` - Restauración inteligente
@@ -147,6 +180,15 @@ Services/
 - `scan_server_uploads` - Escanear uploads servidor
 - `import_from_server` - Importar desde servidor
 - `validate_backup` - Validar integridad
+- `export_standalone_installer` - **¡NUEVO!** Generar instalador AJAX
+
+#### **En el Instalador Simple AJAX:**
+- `extract_backup` - Extraer backup principal
+- `extract_files` - Iniciar extracción de archivos  
+- `extract_files_chunk` - Procesar chunk de archivos
+- `restore_database` - Restaurar base de datos
+- `configure_system` - Configurar sistema
+- `get_progress` - Obtener progreso en tiempo real
 
 ## 🚦 Solución de Problemas
 
@@ -179,10 +221,21 @@ Services/
 #### Problemas de Migración
 ```
 ❌ URLs o prefijos incorrectos después de restaurar
-✅ Solución: Usa "Restauración Inteligente"
+✅ Solución: Usa "Restauración Inteligente" o "Instalador Simple AJAX"
    - Migración automática de URLs
    - Adaptación automática de prefijos
    - Verificación post-restauración
+   - Instalador independiente para nuevos servidores
+```
+
+#### Problemas con Archivos Grandes en Instalador
+```
+❌ Archivos no se extraen o timeouts durante instalación
+✅ Solución: Usar el nuevo "Instalador Simple AJAX" (v1.3.0)
+   - Extracción por chunks de 50 archivos
+   - Progreso en tiempo real
+   - Sin dependencias de límites PHP
+   - Recuperación automática de errores
 ```
 
 ### **Verificación de Estado**
@@ -198,14 +251,35 @@ ls -la admin/ps_copia/uploads/
 
 | Tamaño del Sitio | Método Recomendado | Tiempo Estimado | Memoria Usada |
 |------------------|-------------------|-----------------|---------------|
-| < 100MB | Upload HTTP | 2-5 minutos | < 50MB |
-| 100MB - 500MB | Upload HTTP | 5-15 minutos | < 100MB |
-| 500MB - 2GB | Importar Servidor | 10-30 minutos | < 100MB |
-| > 2GB | Importar Servidor | 30-60 minutos | < 200MB |
+| < 100MB | Upload HTTP o Instalador AJAX | 2-5 minutos | < 50MB |
+| 100MB - 500MB | Upload HTTP o Instalador AJAX | 5-15 minutos | < 100MB |
+| 500MB - 2GB | Importar Servidor o **Instalador AJAX** | 10-30 minutos | < 100MB |
+| > 2GB | Importar Servidor o **Instalador AJAX** | 30-60 minutos | < 200MB |
+
+### **Nuevo: Rendimiento Instalador AJAX**
+| Característica | Instalador Original | Instalador AJAX v1.3.0 |
+|---------------|-------------------|-------------------------|
+| **Archivos grandes** | ❌ Timeouts frecuentes | ✅ Chunks de 50 archivos |
+| **Progreso visual** | ❌ Sin feedback | ✅ Barras + logs tiempo real |
+| **Recuperación errores** | ❌ Reinicio manual | ✅ Automática con logs |
+| **Dependencias** | ❌ Necesita PrestaShop | ✅ Solo PHP básico |
+| **Hosting compatibilidad** | ❌ Limitado | ✅ Universal |
 
 ## 🔄 Changelog
 
-### **Versión 1.2.1** _(Actual)_
+### **Versión 1.3.0** _(Actual)_ 🎉
+- 🚀 **NUEVO**: **Instalador Simple AJAX** - Migración independiente sin PrestaShop
+- ⚡ **NUEVO**: **Extracción por chunks** - Maneja archivos de cualquier tamaño
+- 📊 **NUEVO**: **Progreso en tiempo real** - Barras visuales y logs detallados
+- 🔧 **CORREGIDO**: **Extracción de archivos** - Resuelto problema de archivos no extraídos
+- 🎯 **NUEVO**: **Interfaz moderna AJAX** - Estilo Duplicator con tecnología web actual
+- 🛠️ **MEJORADO**: **Manejo de errores** - Recuperación automática y logs detallados
+- 📋 **NUEVO**: **Generador de instalador** - Botón directo desde backups disponibles
+- 🌐 **MEJORADO**: **Compatibilidad hosting** - Funciona en cualquier servidor con PHP básico
+- 📁 **CORREGIDO**: **Lógica de archivos** - Extracción paso a paso sin timeouts
+- 🔐 **MEJORADO**: **Seguridad instalador** - Exclusiones automáticas y limpieza
+
+### **Versión 1.2.1**
 - 🏗️ **Nuevo**: Refactorización completa con arquitectura de servicios
 - 🧠 **Nuevo**: Restauración inteligente con migración automática
 - 🔧 **Mejorado**: Manejo robusto de prefijos de tabla y URLs
@@ -234,7 +308,10 @@ ls -la admin/ps_copia/uploads/
 Los siguientes documentos están disponibles para referencia técnica:
 - `LICENSE.md` - Licencia del módulo
 - `INSTALL.md` - Guía detallada de instalación
-- `CHANGELOG_v1.2.md` - Detalles de la versión actual
+- `CHANGELOG_v1.2.md` - Detalles de versiones anteriores
+- `SIMPLE_INSTALLER_README.md` - **¡NUEVO!** Guía completa del Instalador Simple AJAX
+- `TROUBLESHOOTING_EXPORT.md` - Solución de problemas de exportación
+- `STANDALONE_INSTALLER_README.md` - Documentación técnica del instalador
 
 ## 🛡️ Seguridad
 

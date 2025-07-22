@@ -646,6 +646,10 @@ $(document).ready(function() {
                 html += 'data-backup-name="' + backup.name + '">';
                 html += '<i class="icon-download"></i> Exportar';
                 html += '</button>';
+                html += '<button class="btn btn-xs btn-primary export-standalone-installer-btn" ';
+                html += 'data-backup-name="' + backup.name + '" title="Exportar con Instalador Estilo Duplicator">';
+                html += '<i class="icon-magic"></i> Instalador';
+                html += '</button>';
                 html += '<button class="btn btn-xs btn-danger delete-backup-btn" ';
                 html += 'data-backup-name="' + backup.name + '">';
                 html += '<i class="icon-trash"></i> Eliminar';
@@ -1071,6 +1075,89 @@ $(document).ready(function() {
             },
             complete: function() {
                 $btn.prop('disabled', false).html('<i class="icon-download"></i> Exportar');
+            }
+        });
+    });
+
+    // Manejar botones de exportar con instalador standalone
+    $(document).on('click', '.export-standalone-installer-btn', function() {
+        var $btn = $(this);
+        var backupName = $btn.data('backup-name');
+        
+        // Mostrar confirmación con información adicional
+        var confirmMessage = '¿Crear instalador standalone estilo Duplicator?\n\n';
+        confirmMessage += 'Este paquete incluirá:\n';
+        confirmMessage += '• Instalador PHP automático\n';
+        confirmMessage += '• Archivos completos del sitio\n';
+        confirmMessage += '• Base de datos completa\n';
+        confirmMessage += '• Instrucciones de instalación\n\n';
+        confirmMessage += 'El paquete resultante podrá instalarse en cualquier servidor\n';
+        confirmMessage += 'sin necesidad de tener PrestaShop preinstalado.\n\n';
+        confirmMessage += '¿Continuar?';
+        
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+        
+        $btn.prop('disabled', true).html('<i class="icon-spinner icon-spin"></i> Creando...');
+
+        $.ajax({
+            url: ajaxUrl,
+            type: 'POST',
+            dataType: 'json',
+            timeout: 1800000, // 30 minutos para exportaciones grandes
+            data: {
+                action: 'export_standalone_installer',
+                backup_name: backupName,
+                ajax: true,
+{/literal}
+                token: "{if isset($token)}{$token|escape:'html':'UTF-8'}{else}{Tools::getAdminTokenLite('AdminPsCopiaAjax')}{/if}"
+{literal}
+            },
+            success: function(response) {
+                if (response && response.success) {
+                    // Crear enlace de descarga automática
+                    var link = document.createElement('a');
+                    link.href = response.data.download_url;
+                    link.download = response.data.filename;
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    // Mostrar mensaje detallado de éxito
+                    var successMessage = '¡Éxito! Instalador standalone creado correctamente.\n\n';
+                    successMessage += 'Archivo: ' + response.data.filename + '\n';
+                    successMessage += 'Tamaño: ' + response.data.size_formatted + '\n\n';
+                    successMessage += 'INSTRUCCIONES DE USO:\n';
+                    successMessage += '1. Extrae el ZIP descargado\n';
+                    successMessage += '2. Sube todos los archivos a tu servidor\n';
+                    successMessage += '3. Accede a: tu-dominio.com/' + response.data.installer_filename + '\n';
+                    successMessage += '4. Sigue el asistente de instalación\n\n';
+                    successMessage += 'El instalador detectará automáticamente los archivos y\n';
+                    successMessage += 'te guiará paso a paso en la instalación.';
+                    
+                    alert(successMessage);
+                } else {
+                    alert('Error: ' + (response.error || 'Error desconocido al crear el instalador'));
+                }
+            },
+            error: function(xhr, status, error) {
+                var errorMessage = 'Error de comunicación con el servidor';
+                if (status === 'timeout') {
+                    errorMessage = 'La operación tardó demasiado tiempo. Para sitios muy grandes, verifica si la creación del instalador se completó más tarde.';
+                } else if (xhr.responseText) {
+                    try {
+                        var response = JSON.parse(xhr.responseText);
+                        errorMessage = response.error || errorMessage;
+                    } catch (e) {
+                        errorMessage += ': ' + xhr.responseText.substring(0, 200);
+                    }
+                }
+                alert('Error: ' + errorMessage);
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html('<i class="icon-magic"></i> Instalador');
             }
         });
     });

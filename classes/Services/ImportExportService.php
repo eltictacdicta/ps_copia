@@ -102,6 +102,98 @@ class ImportExportService
     }
 
     /**
+     * Export backup with standalone installer - creates a simple PHP installer that works with normal export ZIP
+     *
+     * @param string $backupName
+     * @return array
+     * @throws \Exception
+     */
+    public function exportStandaloneInstaller(string $backupName): array
+    {
+        $this->logger->info("Starting simple standalone installer export", ['backup_name' => $backupName]);
+
+        $backupDir = $this->backupContainer->getProperty(BackupContainer::BACKUP_PATH);
+        $metadata = $this->getBackupMetadata();
+        
+        if (!isset($metadata[$backupName])) {
+            throw new \Exception("Backup not found: $backupName");
+        }
+        
+        $backupData = $metadata[$backupName];
+        
+        // Primero crear un export normal para obtener el ZIP estándar
+        $this->logger->info("Creating standard export first");
+        $standardExport = $this->exportBackup($backupName);
+        
+        // El ZIP de exportación normal ya debería existir
+        $exportZipPath = $backupDir . DIRECTORY_SEPARATOR . $backupName . '_export.zip';
+        
+        if (!file_exists($exportZipPath) || filesize($exportZipPath) === 0) {
+            throw new \Exception("Standard export ZIP not found or is empty: " . basename($exportZipPath));
+        }
+        
+        $exportZipSize = filesize($exportZipPath);
+        $this->logger->info("Using existing export ZIP", [
+            'zip_file' => basename($exportZipPath),
+            'zip_size' => ResponseHelper::formatBytes($exportZipSize)
+        ]);
+
+        // Generate configuration for the installer
+        $installerConfig = [
+            'backup_name' => $backupName,
+            'created_date' => date('Y-m-d H:i:s'),
+            'prestashop_version' => defined('_PS_VERSION_') ? _PS_VERSION_ : '8.0.0',
+            'source_url' => $this->getCurrentUrl(),
+            'export_zip_name' => basename($exportZipPath)
+        ];
+        
+        $this->logger->info("Generated simple installer config", $installerConfig);
+        
+        // Create the standalone installer PHP file
+        $installerContent = $this->generateSimpleInstallerPHP($installerConfig);
+        $installerFileName = 'ps_copias_installer.php';
+        
+        // Save the installer PHP file
+        $installerPath = $backupDir . DIRECTORY_SEPARATOR . $installerFileName;
+        
+        if (file_put_contents($installerPath, $installerContent) === false) {
+            throw new \Exception('Failed to create installer PHP file');
+        }
+        
+        // Verify installer file was created
+        if (!file_exists($installerPath) || filesize($installerPath) === 0) {
+            throw new \Exception('Installer PHP file was not created or is empty');
+        }
+        
+        $installerSize = filesize($installerPath);
+        
+        $this->logger->info("Simple standalone installer created successfully", [
+            'backup_name' => $backupName,
+            'installer_file' => $installerFileName,
+            'installer_size' => ResponseHelper::formatBytes($installerSize),
+            'export_zip_file' => basename($exportZipPath),
+            'export_zip_size' => ResponseHelper::formatBytes($exportZipSize)
+        ]);
+        
+        return [
+            'download_url' => $this->getDownloadUrl($installerPath),
+            'filename' => $installerFileName,
+            'size' => $installerSize,
+            'size_formatted' => ResponseHelper::formatBytes($installerSize),
+            'installer_filename' => $installerFileName,
+            'export_zip_filename' => basename($exportZipPath),
+            'export_zip_size' => $exportZipSize,
+            'export_zip_size_formatted' => ResponseHelper::formatBytes($exportZipSize),
+            'instructions' => [
+                'step1' => 'Descarga tanto el archivo ' . $installerFileName . ' como el archivo ' . basename($exportZipPath),
+                'step2' => 'Sube ambos archivos al directorio raíz de tu nuevo servidor',
+                'step3' => 'Accede a http://tu-dominio.com/' . $installerFileName . ' en tu navegador',
+                'step4' => 'Sigue las instrucciones del instalador para completar la restauración'
+            ]
+        ];
+    }
+
+    /**
      * Import backup from uploaded file
      *
      * @param array $uploadedFile
@@ -357,6 +449,73 @@ class ImportExportService
             $zip->close();
             @unlink($tempZipPath);
         }
+    }
+
+    /**
+     * Validate backup files before processing
+     *
+     * @param string $dbFile
+     * @param string $filesFile
+     * @throws \Exception
+     */
+    private function validateBackupFiles(string $dbFile, string $filesFile): void
+    {
+        $this->logger->info("Validating backup files before processing");
+        
+        // Check database file
+        if (!is_readable($dbFile)) {
+            throw new \Exception("Database backup file is not readable: " . basename($dbFile));
+        }
+        
+        $dbSize = filesize($dbFile);
+        if ($dbSize === false) {
+            throw new \Exception("Cannot determine size of database backup file: " . basename($dbFile));
+        }
+        
+        if ($dbSize < 1024) { // Less than 1KB is suspicious
+            throw new \Exception("Database backup file is too small (" . ResponseHelper::formatBytes($dbSize) . "): " . basename($dbFile));
+        }
+        
+        // Check files backup
+        if (!is_readable($filesFile)) {
+            throw new \Exception("Files backup file is not readable: " . basename($filesFile));
+        }
+        
+        $filesSize = filesize($filesFile);
+        if ($filesSize === false) {
+            throw new \Exception("Cannot determine size of files backup file: " . basename($filesFile));
+        }
+        
+        if ($filesSize < 1024) { // Less than 1KB is suspicious
+            throw new \Exception("Files backup file is too small (" . ResponseHelper::formatBytes($filesSize) . "): " . basename($filesFile));
+        }
+        
+        // Check if ZIP file structure is valid for files backup
+        if (pathinfo($filesFile, PATHINFO_EXTENSION) === 'zip') {
+            $zip = new ZipArchive();
+            $result = $zip->open($filesFile, ZipArchive::RDONLY);
+            
+            if ($result !== TRUE) {
+                throw new \Exception("Files backup ZIP is corrupted: " . ResponseHelper::getZipError($result));
+            }
+            
+            $numFiles = $zip->numFiles;
+            $zip->close();
+            
+            if ($numFiles === 0) {
+                throw new \Exception("Files backup ZIP is empty (no files inside)");
+            }
+            
+            $this->logger->info("Files backup ZIP validation passed", [
+                'num_files' => $numFiles,
+                'size' => ResponseHelper::formatBytes($filesSize)
+            ]);
+        }
+        
+        $this->logger->info("Backup files validation completed successfully", [
+            'database_size' => ResponseHelper::formatBytes($dbSize),
+            'files_size' => ResponseHelper::formatBytes($filesSize)
+        ]);
     }
 
     /**
@@ -978,18 +1137,36 @@ class ImportExportService
      */
     public function downloadExport(string $filename): void
     {
+        // Log the received filename for debugging
+        $this->logger->info("Download export requested", [
+            'received_filename' => $filename,
+            'filename_length' => strlen($filename)
+        ]);
+        
         // Validate filename
         if (empty($filename)) {
+            $this->logger->error("Empty filename provided for download");
             throw new \Exception('Filename is required');
         }
 
         // Security check - prevent directory traversal
         if (strpos($filename, '..') !== false || strpos($filename, '/') !== false || strpos($filename, '\\') !== false) {
+            $this->logger->error("Invalid filename with path traversal attempt", ['filename' => $filename]);
             throw new \Exception('Invalid filename');
         }
 
-        // Check if filename ends with _export.zip
-        if (!preg_match('/^[a-zA-Z0-9_-]+_export\.zip$/', $filename)) {
+        // Check if filename is either an export ZIP or installer PHP file
+        $isExportZip = preg_match('/^[a-zA-Z0-9._-]+_export\.zip$/', $filename);
+        $isInstallerPhp = preg_match('/^ps_copias_installer\.php$/', $filename);
+        
+        if (!$isExportZip && !$isInstallerPhp) {
+            $this->logger->error("Filename does not match expected format", [
+                'filename' => $filename,
+                'expected_patterns' => [
+                    'export_zip' => '/^[a-zA-Z0-9._-]+_export\.zip$/',
+                    'installer_php' => '/^ps_copias_installer\.php$/'
+                ]
+            ]);
             throw new \Exception('Invalid export filename format');
         }
 
@@ -1021,8 +1198,12 @@ class ImportExportService
             ob_end_clean();
         }
 
-        // Set headers for download
-        header('Content-Type: application/zip');
+        // Set headers for download based on file type
+        if ($isInstallerPhp) {
+            header('Content-Type: application/octet-stream');
+        } else {
+            header('Content-Type: application/zip');
+        }
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         header('Content-Length: ' . $fileSize);
         header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
@@ -1196,5 +1377,313 @@ class ImportExportService
             'name' => $credentials['name'],
             'prefix' => $credentials['prefix']
         ]);
+    }
+
+    /**
+     * Generate configuration for the standalone installer
+     *
+     * @param array $backupData
+     * @param string $packageId
+     * @return array
+     */
+    private function generateInstallerConfig(array $backupData, string $packageId): array
+    {
+        // Get current PrestaShop version
+        $psVersion = defined('_PS_VERSION_') ? _PS_VERSION_ : '8.0.0';
+        
+        // Get current site URL
+        $currentUrl = 'http://localhost/';
+        if (defined('_PS_BASE_URL_') && defined('_PS_BASE_URL_SSL_')) {
+            $currentUrl = _PS_BASE_URL_SSL_ ?: _PS_BASE_URL_;
+        } elseif (isset($_SERVER['HTTP_HOST'])) {
+            $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
+            $currentUrl = $protocol . $_SERVER['HTTP_HOST'] . '/';
+        }
+
+        return [
+            'package_name' => $packageId,
+            'created_date' => date('Y-m-d H:i:s'),
+            'prestashop_version' => $psVersion,
+            'source_url' => $currentUrl,
+            'backup_info' => $backupData,
+            'archive_pattern' => 'ps_copias_archive_*.zip',
+            'database_pattern' => 'ps_copias_database_*.sql',
+            'package_pattern' => 'ps_copias_package_*.zip'
+        ];
+    }
+
+    /**
+     * Generate the standalone installer PHP file content
+     *
+     * @param array $config
+     * @return string
+     */
+    private function generateInstallerPHP(array $config): string
+    {
+        // Load the installer template
+        $templatePath = _PS_MODULE_DIR_ . '/ps_copia/installer_templates/ps_copias_installer_template.php';
+        
+        $this->logger->info("Loading installer template", ['template_path' => $templatePath]);
+        
+        if (!file_exists($templatePath)) {
+            $this->logger->error("Installer template not found", ['template_path' => $templatePath]);
+            throw new \Exception('Installer template not found: ' . $templatePath);
+        }
+        
+        $templateContent = file_get_contents($templatePath);
+        
+        if ($templateContent === false) {
+            $this->logger->error("Cannot read installer template", ['template_path' => $templatePath]);
+            throw new \Exception('Cannot read installer template');
+        }
+
+        if (empty($templateContent) || strlen($templateContent) < 500) {
+            $this->logger->error("Installer template is too small or empty", [
+                'template_path' => $templatePath,
+                'content_length' => strlen($templateContent)
+            ]);
+            throw new \Exception('Installer template appears to be corrupted or empty');
+        }
+
+        $this->logger->info("Template loaded successfully", [
+            'template_size' => strlen($templateContent),
+            'config_keys' => array_keys($config)
+        ]);
+
+        // Ensure config is properly encoded
+        $configJson = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($configJson === false) {
+            throw new \Exception('Failed to encode installer configuration to JSON');
+        }
+
+        // Replace template variables
+        $replacements = [
+            '{EMBEDDED_CONFIG}' => $configJson,
+            '{INSTALLER_VERSION}' => '2.0',
+            '{CREATION_DATE}' => date('Y-m-d H:i:s')
+        ];
+
+        $this->logger->info("Applying template replacements", [
+            'replacements_count' => count($replacements),
+            'config_json_size' => strlen($configJson)
+        ]);
+
+        $installerContent = str_replace(array_keys($replacements), array_values($replacements), $templateContent);
+
+        // Verify that replacements were actually made
+        foreach (array_keys($replacements) as $placeholder) {
+            if (strpos($installerContent, $placeholder) !== false) {
+                $this->logger->warning("Template placeholder not replaced", ['placeholder' => $placeholder]);
+            }
+        }
+
+        if (strlen($installerContent) < 1000) {
+            throw new \Exception('Generated installer content is too small, template processing may have failed');
+        }
+
+        $this->logger->info("Installer PHP content generated successfully", [
+            'final_size' => strlen($installerContent)
+        ]);
+
+        return $installerContent;
+    }
+
+    /**
+     * Generate site configuration for the installer
+     *
+     * @param array $backupData
+     * @return array
+     */
+    private function generateSiteConfig(array $backupData): array
+    {
+        return [
+            'backup_info' => $backupData,
+            'created_at' => date('Y-m-d H:i:s'),
+            'ps_version' => defined('_PS_VERSION_') ? _PS_VERSION_ : '8.0.0',
+            'modules_info' => $this->getModulesInfo(),
+            'php_version' => phpversion(),
+            'mysql_version' => $this->getMySQLVersion()
+        ];
+    }
+
+    /**
+     * Generate README content for the standalone installer package
+     *
+     * @param string $packageId
+     * @param array $config
+     * @return string
+     */
+    private function generateReadmeContent(string $packageId, array $config): string
+    {
+        $readme = "# PS Copias - Instalador Standalone\n\n";
+        $readme .= "Este paquete contiene un instalador completo estilo Duplicator para PrestaShop.\n\n";
+        $readme .= "## Información del Paquete\n\n";
+        $readme .= "- **ID del Paquete:** {$packageId}\n";
+        $readme .= "- **Fecha de Creación:** {$config['created_date']}\n";
+        $readme .= "- **PrestaShop Versión:** {$config['prestashop_version']}\n";
+        $readme .= "- **URL Original:** {$config['source_url']}\n\n";
+        $readme .= "## Instrucciones de Instalación\n\n";
+        $readme .= "1. **Sube todos los archivos** de este ZIP a tu servidor web\n";
+        $readme .= "2. **Accede a tu dominio** donde subiste los archivos\n";
+        $readme .= "3. **Ejecuta el instalador** navegando a: `http://tu-dominio.com/ps_copias_installer.php`\n";
+        $readme .= "4. **Sigue las instrucciones** del instalador paso a paso\n\n";
+        $readme .= "## Requisitos del Servidor\n\n";
+        $readme .= "- PHP 7.2 o superior\n";
+        $readme .= "- MySQL 5.6 o superior\n";
+        $readme .= "- Extensiones PHP: ZIP, MySQLi/PDO_MySQL\n";
+        $readme .= "- Memoria mínima: 512MB\n\n";
+        $readme .= "## Archivos Incluidos\n\n";
+        $readme .= "- `ps_copias_installer.php` - Instalador principal\n";
+        $readme .= "- `ps_copias_package_*.zip` - Paquete con backup completo\n";
+        $readme .= "- `README.txt` - Este archivo\n\n";
+        $readme .= "## Proceso de Instalación\n\n";
+        $readme .= "El instalador te guiará através de estos pasos:\n\n";
+        $readme .= "1. **Bienvenida** - Verificación de archivos\n";
+        $readme .= "2. **Extracción** - Descompresión del paquete (si es necesario)\n";
+        $readme .= "3. **Requisitos** - Verificación del sistema\n";
+        $readme .= "4. **Base de Datos** - Configuración de conexión MySQL\n";
+        $readme .= "5. **Instalación** - Proceso automático de restauración\n";
+        $readme .= "6. **Completado** - Acceso a tu nueva tienda\n\n";
+        $readme .= "## Soporte\n\n";
+        $readme .= "Para soporte técnico, consulta la documentación del módulo PS Copias.\n\n";
+        $readme .= "---\n";
+        $readme .= "Generado por PS Copias - Instalador Estilo Duplicator\n";
+        $readme .= "Fecha: " . date('Y-m-d H:i:s') . "\n";
+
+        return $readme;
+    }
+
+    /**
+     * Get information about installed modules (simplified)
+     *
+     * @return array
+     */
+    private function getModulesInfo(): array
+    {
+        try {
+            if (class_exists('Module')) {
+                $modules = \Module::getModulesOnDisk();
+                return array_slice($modules, 0, 10); // Limit to first 10 modules
+            }
+        } catch (\Exception $e) {
+            // Ignore errors
+        }
+        
+        return [];
+    }
+
+    /**
+     * Get MySQL version
+     *
+     * @return string
+     */
+    private function getMySQLVersion(): string
+    {
+        try {
+            if (class_exists('Db') && method_exists('Db', 'getInstance')) {
+                $db = \Db::getInstance();
+                $result = $db->executeS('SELECT VERSION() as version');
+                if (isset($result[0]['version'])) {
+                    return $result[0]['version'];
+                }
+            }
+        } catch (\Exception $e) {
+            // Ignore errors
+        }
+        
+        return 'Unknown';
+    }
+
+    /**
+     * Generate a simple standalone installer PHP file content
+     * This method is specifically for the new standalone installer that works with a single ZIP file.
+     *
+     * @param array $config
+     * @return string
+     */
+    private function generateSimpleInstallerPHP(array $config): string
+    {
+        $templatePath = _PS_MODULE_DIR_ . '/ps_copia/installer_templates/ps_copias_installer_simple_template.php';
+        
+        $this->logger->info("Loading simple installer template", ['template_path' => $templatePath]);
+        
+        if (!file_exists($templatePath)) {
+            $this->logger->error("Simple installer template not found", ['template_path' => $templatePath]);
+            throw new \Exception('Simple installer template not found: ' . $templatePath);
+        }
+        
+        $templateContent = file_get_contents($templatePath);
+        
+        if ($templateContent === false) {
+            $this->logger->error("Cannot read simple installer template", ['template_path' => $templatePath]);
+            throw new \Exception('Cannot read simple installer template');
+        }
+
+        if (empty($templateContent) || strlen($templateContent) < 500) {
+            $this->logger->error("Simple installer template is too small or empty", [
+                'template_path' => $templatePath,
+                'content_length' => strlen($templateContent)
+            ]);
+            throw new \Exception('Simple installer template appears to be corrupted or empty');
+        }
+
+        $this->logger->info("Simple template loaded successfully", [
+            'template_size' => strlen($templateContent),
+            'config_keys' => array_keys($config)
+        ]);
+
+        // Ensure config is properly encoded
+        $configJson = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($configJson === false) {
+            throw new \Exception('Failed to encode simple installer configuration to JSON');
+        }
+
+        // Replace template variables
+        $replacements = [
+            '{EMBEDDED_CONFIG}' => $configJson,
+            '{INSTALLER_VERSION}' => '2.0',
+            '{CREATION_DATE}' => date('Y-m-d H:i:s')
+        ];
+
+        $this->logger->info("Applying simple template replacements", [
+            'replacements_count' => count($replacements),
+            'config_json_size' => strlen($configJson)
+        ]);
+
+        $installerContent = str_replace(array_keys($replacements), array_values($replacements), $templateContent);
+
+        // Verify that replacements were actually made
+        foreach (array_keys($replacements) as $placeholder) {
+            if (strpos($installerContent, $placeholder) !== false) {
+                $this->logger->warning("Simple template placeholder not replaced", ['placeholder' => $placeholder]);
+            }
+        }
+
+        if (strlen($installerContent) < 1000) {
+            throw new \Exception('Generated simple installer content is too small, template processing may have failed');
+        }
+
+        $this->logger->info("Simple installer PHP content generated successfully", [
+            'final_size' => strlen($installerContent)
+        ]);
+
+        return $installerContent;
+    }
+
+    /**
+     * Get the current site URL
+     *
+     * @return string
+     */
+    private function getCurrentUrl(): string
+    {
+        $currentUrl = 'http://localhost/';
+        if (defined('_PS_BASE_URL_') && defined('_PS_BASE_URL_SSL_')) {
+            $currentUrl = _PS_BASE_URL_SSL_ ?: _PS_BASE_URL_;
+        } elseif (isset($_SERVER['HTTP_HOST'])) {
+            $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
+            $currentUrl = $protocol . $_SERVER['HTTP_HOST'] . '/';
+        }
+        return $currentUrl;
     }
 } 
