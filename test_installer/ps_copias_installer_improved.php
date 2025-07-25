@@ -7,9 +7,15 @@
  * No requiere estructura de PrestaShop
  * 
  * TEMPLATE VARIABLES TO REPLACE:
- * {EMBEDDED_CONFIG} - Configuration JSON with backup information
- * {INSTALLER_VERSION} - Version number
- * {CREATION_DATE} - Package creation date
+ * {
+    "backup_name": "test_backup",
+    "created_date": "2025-07-25 14:00:49",
+    "prestashop_version": "8.0.0",
+    "source_url": "http://localhost/",
+    "export_zip_name": "test_backup_export.zip"
+} - Configuration JSON with backup information
+ * 2.0-improved - Version number
+ * 2025-07-25 14:00:49 - Package creation date
  */
 
 // Suprimir warnings y notices que pueden interferir con JSON
@@ -18,10 +24,16 @@ ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 
 // Configuración embebida - WILL BE REPLACED BY SERVICE
-$EMBEDDED_CONFIG = json_decode('{EMBEDDED_CONFIG}', true);
+$EMBEDDED_CONFIG = json_decode('{
+    "backup_name": "test_backup",
+    "created_date": "2025-07-25 14:00:49",
+    "prestashop_version": "8.0.0",
+    "source_url": "http://localhost/",
+    "export_zip_name": "test_backup_export.zip"
+}', true);
 
 // Configuración del instalador
-define('INSTALLER_VERSION', '{INSTALLER_VERSION}');
+define('INSTALLER_VERSION', '2.0-improved');
 define('MAX_EXECUTION_TIME', 300); // 5 minutos por chunk
 define('MEMORY_LIMIT', '512M');
 define('CHUNK_SIZE', 50); // Archivos por chunk
