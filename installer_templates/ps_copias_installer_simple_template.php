@@ -345,6 +345,12 @@ class PsCopiasSimpleInstaller
             throw new Exception('No se pudo abrir el ZIP: ' . $this->getZipError($result));
         }
         
+        // Verificar que el ZIP no esté vacío
+        if ($zip->numFiles == 0) {
+            $zip->close();
+            throw new Exception('El archivo ZIP está vacío o no contiene archivos');
+        }
+        
         $targetDir = dirname(__FILE__);
         $tempExtractDir = $targetDir . '/' . $this->tempDir;
         
@@ -388,9 +394,15 @@ class PsCopiasSimpleInstaller
             }
         }
         
+        $totalFiles = $zip->numFiles;
         $zip->close();
         
-        $progress = (($chunkIndex + 1) * CHUNK_SIZE / $zip->numFiles) * 100;
+        // Evitar división por cero
+        if ($totalFiles == 0) {
+            throw new Exception('El archivo ZIP está vacío');
+        }
+        
+        $progress = (($chunkIndex + 1) * CHUNK_SIZE / $totalFiles) * 100;
         $progress = min($progress, 100);
         
         $this->saveProgress('extract_files', $progress, "Extrayendo archivos... chunk " . ($chunkIndex + 1));
@@ -496,8 +508,31 @@ class PsCopiasSimpleInstaller
                 glob($extractPath . '/database/*.sql'),
                 glob($extractPath . '/database/*.sql.gz')
             );
+            
             if (!empty($sqlFiles)) {
-                $sqlFile = $sqlFiles[0];
+                // Filtrar archivos de prueba y ordenar por tamaño (más grande primero)
+                $validFiles = [];
+                foreach ($sqlFiles as $file) {
+                    $filename = basename($file);
+                    // Excluir archivos de prueba
+                    if (stripos($filename, 'test') === false && filesize($file) > 100) {
+                        $validFiles[] = $file;
+                    }
+                }
+                
+                // Si hay archivos válidos, usar el más grande
+                if (!empty($validFiles)) {
+                    usort($validFiles, function($a, $b) {
+                        return filesize($b) - filesize($a);
+                    });
+                    $sqlFile = $validFiles[0];
+                } else {
+                    // Si no hay archivos válidos, usar el más grande de todos
+                    usort($sqlFiles, function($a, $b) {
+                        return filesize($b) - filesize($a);
+                    });
+                    $sqlFile = $sqlFiles[0];
+                }
             }
         }
         
@@ -514,7 +549,7 @@ class PsCopiasSimpleInstaller
             throw new Exception('Archivo SQL no encontrado');
         }
         
-        $this->logMessage("Restoring database from: " . basename($sqlFile));
+        $this->logMessage("Restoring database from: " . basename($sqlFile) . " (size: " . filesize($sqlFile) . " bytes)");
         $this->saveProgress('restore_database', 0, 'Iniciando restauración de base de datos...');
         
         $result = $this->restoreDatabase($sqlFile, $dbConfig);
@@ -1174,19 +1209,49 @@ class PsCopiasSimpleInstaller
         
         $output = [];
         $returnVar = 0;
+        $this->logMessage("Executing MySQL command: " . $command);
         exec($command, $output, $returnVar);
+        $this->logMessage("MySQL command completed with return code: " . $returnVar);
         
         if ($returnVar !== 0) {
             $errorOutput = implode("\n", $output);
-            $this->logMessage("MySQL command failed: " . $errorOutput);
+            $this->logMessage("MySQL command failed with return code: " . $returnVar);
+            $this->logMessage("MySQL error output: " . $errorOutput);
+            $this->logMessage("Command executed: " . $command);
             
             return [
                 'success' => false,
-                'error' => 'Error ejecutando MySQL: ' . $errorOutput
+                'error' => 'Error ejecutando MySQL (código ' . $returnVar . '): ' . $errorOutput
             ];
         }
         
         $this->logMessage("Database restored successfully via command");
+        
+        // Verificar que algunas tablas clave existan
+        try {
+            $connection = new mysqli($dbConfig['host'], $dbConfig['user'], $dbConfig['password'], $dbConfig['name']);
+            if (!$connection->connect_error) {
+                $prefix = $dbConfig['prefix'];
+                $testTables = ["{$prefix}configuration", "{$prefix}shop_url"];
+                $tablesFound = 0;
+                
+                foreach ($testTables as $table) {
+                    $result = $connection->query("SHOW TABLES LIKE '{$table}'");
+                    if ($result && $result->num_rows > 0) {
+                        $tablesFound++;
+                        $this->logMessage("Verified table exists: {$table}");
+                    } else {
+                        $this->logMessage("WARNING: Table not found: {$table}");
+                    }
+                }
+                
+                $connection->close();
+                $this->logMessage("Database verification: {$tablesFound} out of " . count($testTables) . " tables found");
+            }
+        } catch (Exception $e) {
+            $this->logMessage("Error verifying database restoration: " . $e->getMessage());
+        }
+        
         return ['success' => true];
     }
     
@@ -1242,6 +1307,19 @@ class PsCopiasSimpleInstaller
             
             $this->logMessage("Configuring for domain: " . $domain);
             
+            // Verificar que las tablas necesarias existan
+            $requiredTables = ["{$prefix}shop_url", "{$prefix}configuration"];
+            foreach ($requiredTables as $table) {
+                $result = $connection->query("SHOW TABLES LIKE '{$table}'");
+                if ($result->num_rows == 0) {
+                    $this->logMessage("ERROR: Required table {$table} does not exist. Database restoration may have failed.");
+                    return [
+                        'success' => false,
+                        'error' => "La tabla {$table} no existe. La restauración de la base de datos puede haber fallado."
+                    ];
+                }
+            }
+            
             // Actualizar configuración de dominio
             $queries = [
                 "UPDATE `{$prefix}shop_url` SET `domain` = '{$domain}', `domain_ssl` = '{$domain}'",
@@ -1253,6 +1331,10 @@ class PsCopiasSimpleInstaller
                 $result = $connection->query($query);
                 if (!$result) {
                     $this->logMessage("Config query failed: " . $connection->error);
+                    return [
+                        'success' => false,
+                        'error' => 'Error actualizando configuración: ' . $connection->error
+                    ];
                 }
             }
             
