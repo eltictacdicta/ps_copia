@@ -133,6 +133,12 @@ class PsCopiasSimpleInstaller
      */
     public function run()
     {
+        // Manejar acción de auto-destrucción
+        if ($_POST['action'] ?? '' === 'self_destruct') {
+            $this->handleSelfDestruct();
+            return;
+        }
+        
         $this->logMessage("=== PS Copias Simple Installer AJAX Started ===");
         $this->logMessage("Version: " . INSTALLER_VERSION);
         $this->logMessage("Step: " . $this->currentStep);
@@ -166,6 +172,28 @@ class PsCopiasSimpleInstaller
             default:
                 $this->showWelcomeStep();
         }
+    }
+    
+    /**
+     * Maneja la auto-destrucción del instalador
+     */
+    private function handleSelfDestruct()
+    {
+        try {
+            $installerFile = __FILE__;
+            if (file_exists($installerFile)) {
+                if (unlink($installerFile)) {
+                    echo json_encode(['success' => true, 'message' => 'Instalador eliminado correctamente']);
+                } else {
+                    echo json_encode(['success' => false, 'message' => 'No se pudo eliminar el instalador']);
+                }
+            } else {
+                echo json_encode(['success' => false, 'message' => 'El archivo instalador no existe']);
+            }
+        } catch (Exception $e) {
+            echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
+        }
+        exit;
     }
     
     /**
@@ -990,6 +1018,9 @@ class PsCopiasSimpleInstaller
      */
     private function showCompleteStep()
     {
+        // Realizar limpieza automática post-instalación
+        $cleanupResults = $this->performPostInstallationCleanup();
+        
         $this->renderHeader("Instalación Completada");
         
         echo '<div class="step-content">';
@@ -998,32 +1029,51 @@ class PsCopiasSimpleInstaller
         
         $currentUrl = $this->getCurrentUrl();
         $shopUrl = dirname($currentUrl);
+        $adminDir = $this->detectAdminDirectory();
         
         echo '<div class="success-box">';
         echo '<h3>Acceso a tu Tienda</h3>';
         echo '<ul>';
         echo '<li><strong>Frontend:</strong> <a href="' . $shopUrl . '" target="_blank">' . $shopUrl . '</a></li>';
-        echo '<li><strong>Admin:</strong> <a href="' . $shopUrl . '/admin" target="_blank">' . $shopUrl . '/admin</a></li>';
+        echo '<li><strong>Admin:</strong> <a href="' . $shopUrl . '/' . $adminDir . '" target="_blank">' . $shopUrl . '/' . $adminDir . '</a></li>';
+        echo '</ul>';
+        echo '</div>';
+        
+        // Mostrar resultados de la limpieza automática
+        echo '<div class="success-box">';
+        echo '<h3>🧹 Limpieza Automática Completada</h3>';
+        echo '<ul>';
+        foreach ($cleanupResults as $task => $result) {
+            if ($task !== 'error') {
+                echo '<li>✅ ' . $result . '</li>';
+            }
+        }
+        if (isset($cleanupResults['error'])) {
+            echo '<li>❌ ' . $cleanupResults['error'] . '</li>';
+        }
         echo '</ul>';
         echo '</div>';
         
         echo '<div class="warning-box">';
         echo '<h3>⚠ Importante - Seguridad</h3>';
         echo '<ul>';
-        echo '<li>Elimina este archivo instalador: <code>' . basename(__FILE__) . '</code></li>';
-        echo '<li>Elimina el archivo ZIP de backup del directorio web</li>';
-        echo '<li>Elimina el directorio extracted_backup</li>';
         echo '<li>Cambia las contraseñas de administrador</li>';
-        echo '<li>Verifica la configuración de URLs en el admin</li>';
+        echo '<li>Verifica la configuración de URLs en el panel de administración</li>';
+        echo '<li>Comprueba que los directorios y archivos tengan los permisos correctos</li>';
+        echo '<li>Revisa la configuración de tu tienda en el admin</li>';
         echo '</ul>';
         echo '</div>';
         
         echo '<div class="navigation">';
         echo '<a href="' . $shopUrl . '" class="btn btn-primary" target="_blank">Visitar Tienda →</a>';
-        echo '<a href="' . $shopUrl . '/admin" class="btn btn-secondary" target="_blank">Ir al Admin</a>';
+        echo '<a href="' . $shopUrl . '/' . $adminDir . '" class="btn btn-secondary" target="_blank">Ir al Admin</a>';
         echo '</div>';
         
         echo '</div>';
+        
+        // Agregar script de auto-destrucción
+        echo $this->generateSelfDestructScript();
+        
         $this->renderFooter();
     }
 
@@ -1096,6 +1146,118 @@ class PsCopiasSimpleInstaller
             return json_decode(file_get_contents($configFile), true);
         }
         return null;
+    }
+    
+    /**
+     * Detecta automáticamente el directorio de administración real
+     */
+    private function detectAdminDirectory()
+    {
+        $currentDir = dirname(__FILE__);
+        
+        // Buscar directorios que empiecen con 'admin'
+        $adminDirs = glob($currentDir . '/admin*');
+        
+        if (!empty($adminDirs)) {
+            // Buscar el directorio admin real (que contenga index.php)
+            foreach ($adminDirs as $dir) {
+                if (is_dir($dir) && file_exists($dir . '/index.php')) {
+                    // Verificar que es un directorio admin de PrestaShop
+                    if (file_exists($dir . '/classes/AdminController.php') || 
+                        file_exists($dir . '/tabs.php') ||
+                        file_exists($dir . '/init.php')) {
+                        return basename($dir);
+                    }
+                }
+            }
+            
+            // Fallback al primer directorio admin encontrado
+            if (!empty($adminDirs)) {
+                return basename($adminDirs[0]);
+            }
+        }
+        
+        // Fallback tradicional
+        return 'admin';
+    }
+    
+    /**
+     * Realiza tareas de limpieza post-instalación
+     */
+    private function performPostInstallationCleanup()
+    {
+        $cleanupResults = [];
+        
+        try {
+            // 1. Eliminar directorio extracted_backup
+            $extractedDir = dirname(__FILE__) . '/extracted_backup';
+            if (is_dir($extractedDir)) {
+                if ($this->removeDirectory($extractedDir)) {
+                    $cleanupResults['extracted_backup'] = 'Directorio extracted_backup eliminado correctamente';
+                    $this->logMessage("Extracted backup directory deleted: " . $extractedDir);
+                } else {
+                    $cleanupResults['extracted_backup'] = 'No se pudo eliminar el directorio extracted_backup';
+                }
+            }
+            
+            // 2. Eliminar archivo ZIP de backup
+            if ($this->backupZipFile && file_exists($this->backupZipFile)) {
+                if (unlink($this->backupZipFile)) {
+                    $cleanupResults['backup_zip'] = 'Archivo ZIP de backup eliminado correctamente';
+                    $this->logMessage("Backup ZIP file deleted: " . $this->backupZipFile);
+                } else {
+                    $cleanupResults['backup_zip'] = 'No se pudo eliminar el archivo ZIP de backup';
+                }
+            }
+            
+            // 3. Eliminar archivos temporales del instalador
+            $tempFiles = [
+                dirname(__FILE__) . '/installer_db_config.json'
+            ];
+            
+            foreach ($tempFiles as $file) {
+                if (file_exists($file) && is_file($file)) {
+                    if (unlink($file)) {
+                        $this->logMessage("Temporary file deleted: " . $file);
+                    }
+                }
+            }
+            
+            $cleanupResults['temp_files'] = 'Archivos temporales eliminados';
+            
+            // 4. Programar eliminación del instalador usando JavaScript
+            $cleanupResults['installer'] = 'Archivo instalador será eliminado automáticamente';
+            
+        } catch (Exception $e) {
+            $cleanupResults['error'] = 'Error durante la limpieza: ' . $e->getMessage();
+            $this->logMessage("Cleanup error: " . $e->getMessage());
+        }
+        
+        return $cleanupResults;
+    }
+    
+    /**
+     * Genera JavaScript para eliminar el instalador después de mostrar la página
+     */
+    private function generateSelfDestructScript()
+    {
+        $installerName = basename(__FILE__);
+        return "
+        <script>
+        setTimeout(function() {
+            fetch('', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'action=self_destruct'
+            }).then(function(response) {
+                console.log('Instalador eliminado automaticamente');
+            }).catch(function(error) {
+                console.log('No se pudo eliminar el instalador automaticamente');
+            });
+        }, 5000); // Esperar 5 segundos antes de eliminar
+        </script>";
     }
     
     private function restoreDatabase($sqlFile, $dbConfig)
