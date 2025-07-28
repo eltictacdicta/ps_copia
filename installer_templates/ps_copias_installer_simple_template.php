@@ -580,6 +580,16 @@ class PsCopiasSimpleInstaller
         $this->logMessage("Restoring database from: " . basename($sqlFile) . " (size: " . filesize($sqlFile) . " bytes)");
         $this->saveProgress('restore_database', 0, 'Iniciando restauración de base de datos...');
         
+        // Detectar si necesitamos adaptación de prefijo
+        $sourcePrefix = $this->detectSourcePrefix($sqlFile);
+        $targetPrefix = $dbConfig['prefix'];
+        
+        if ($sourcePrefix && $sourcePrefix !== $targetPrefix) {
+            $this->logMessage("Prefix adaptation needed: {$sourcePrefix} -> {$targetPrefix}");
+            $this->saveProgress('restore_database', 25, 'Adaptando prefijo de tablas...');
+            $sqlFile = $this->createAdaptedSqlFile($sqlFile, $sourcePrefix, $targetPrefix);
+        }
+        
         $result = $this->restoreDatabase($sqlFile, $dbConfig);
         
         if (!$result['success']) {
@@ -611,6 +621,10 @@ class PsCopiasSimpleInstaller
         if (!$result['success']) {
             throw new Exception($result['error']);
         }
+        
+        // Actualizar archivo parameters.php con la nueva configuración
+        $this->saveProgress('configure_system', 75, 'Actualizando configuración de parámetros...');
+        $this->updateParametersFile($dbConfig);
         
         $this->saveProgress('configure_system', 100, 'Sistema configurado correctamente');
         
@@ -1258,6 +1272,200 @@ class PsCopiasSimpleInstaller
             });
         }, 5000); // Esperar 5 segundos antes de eliminar
         </script>";
+    }
+    
+    /**
+     * Detecta el prefijo de tablas del archivo SQL fuente
+     */
+    private function detectSourcePrefix($sqlFile)
+    {
+        $this->logMessage("Detecting source table prefix from SQL file");
+        
+        $isGzipped = pathinfo($sqlFile, PATHINFO_EXTENSION) === 'gz';
+        
+        // Leer las primeras líneas del archivo para detectar el prefijo
+        if ($isGzipped) {
+            $handle = gzopen($sqlFile, 'r');
+            $readFunction = 'gzgets';
+        } else {
+            $handle = fopen($sqlFile, 'r');
+            $readFunction = 'fgets';
+        }
+        
+        if (!$handle) {
+            $this->logMessage("ERROR: Could not open SQL file for prefix detection");
+            return null;
+        }
+        
+        $detectedPrefix = null;
+        $lineCount = 0;
+        $maxLines = 100; // Revisar solo las primeras 100 líneas
+        
+        while (($line = $readFunction($handle)) !== false && $lineCount < $maxLines) {
+            $lineCount++;
+            
+            // Buscar patrones de CREATE TABLE
+            if (preg_match('/CREATE TABLE\s+`?(\w+?)_/', $line, $matches)) {
+                $detectedPrefix = $matches[1] . '_';
+                $this->logMessage("Detected prefix from CREATE TABLE: " . $detectedPrefix);
+                break;
+            }
+            
+            // Buscar patrones de INSERT INTO
+            if (preg_match('/INSERT INTO\s+`?(\w+?)_/', $line, $matches)) {
+                $detectedPrefix = $matches[1] . '_';
+                $this->logMessage("Detected prefix from INSERT INTO: " . $detectedPrefix);
+                break;
+            }
+            
+            // Buscar patrones de UPDATE
+            if (preg_match('/UPDATE\s+`?(\w+?)_/', $line, $matches)) {
+                $detectedPrefix = $matches[1] . '_';
+                $this->logMessage("Detected prefix from UPDATE: " . $detectedPrefix);
+                break;
+            }
+        }
+        
+        if ($isGzipped) {
+            gzclose($handle);
+        } else {
+            fclose($handle);
+        }
+        
+        if ($detectedPrefix) {
+            $this->logMessage("Source table prefix detected: " . $detectedPrefix);
+        } else {
+            $this->logMessage("No table prefix detected, assuming default 'ps_'");
+            $detectedPrefix = 'ps_';
+        }
+        
+        return $detectedPrefix;
+    }
+    
+    /**
+     * Crea un archivo SQL adaptado con el nuevo prefijo
+     */
+    private function createAdaptedSqlFile($originalFile, $sourcePrefix, $targetPrefix)
+    {
+        $this->logMessage("Creating adapted SQL file: {$sourcePrefix} -> {$targetPrefix}");
+        
+        $isGzipped = pathinfo($originalFile, PATHINFO_EXTENSION) === 'gz';
+        $adaptedFile = dirname($originalFile) . '/database_adapted_' . time() . '.sql';
+        
+        // Abrir archivos
+        if ($isGzipped) {
+            $sourceHandle = gzopen($originalFile, 'r');
+            $readFunction = 'gzgets';
+        } else {
+            $sourceHandle = fopen($originalFile, 'r');
+            $readFunction = 'fgets';
+        }
+        
+        $targetHandle = fopen($adaptedFile, 'w');
+        
+        if (!$sourceHandle || !$targetHandle) {
+            throw new Exception("Could not open files for prefix adaptation");
+        }
+        
+        $lineCount = 0;
+        $adaptedLines = 0;
+        
+        try {
+            while (($line = $readFunction($sourceHandle)) !== false) {
+                $lineCount++;
+                
+                // Reemplazar prefijos en diferentes tipos de statements SQL
+                $originalLine = $line;
+                
+                // Reemplazos con backticks
+                $line = str_replace('`' . $sourcePrefix, '`' . $targetPrefix, $line);
+                
+                // Reemplazos sin backticks en diferentes contextos
+                $line = str_replace('CREATE TABLE ' . $sourcePrefix, 'CREATE TABLE ' . $targetPrefix, $line);
+                $line = str_replace('INSERT INTO ' . $sourcePrefix, 'INSERT INTO ' . $targetPrefix, $line);
+                $line = str_replace('UPDATE ' . $sourcePrefix, 'UPDATE ' . $targetPrefix, $line);
+                $line = str_replace('FROM ' . $sourcePrefix, 'FROM ' . $targetPrefix, $line);
+                $line = str_replace('DELETE FROM ' . $sourcePrefix, 'DELETE FROM ' . $targetPrefix, $line);
+                $line = str_replace('DROP TABLE ' . $sourcePrefix, 'DROP TABLE ' . $targetPrefix, $line);
+                $line = str_replace('ALTER TABLE ' . $sourcePrefix, 'ALTER TABLE ' . $targetPrefix, $line);
+                $line = str_replace('REFERENCES ' . $sourcePrefix, 'REFERENCES ' . $targetPrefix, $line);
+                
+                // Contar líneas adaptadas
+                if ($line !== $originalLine) {
+                    $adaptedLines++;
+                }
+                
+                fwrite($targetHandle, $line);
+                
+                // Log progreso cada 1000 líneas
+                if ($lineCount % 1000 === 0) {
+                    $this->logMessage("Processed {$lineCount} lines, adapted {$adaptedLines} lines");
+                }
+            }
+            
+        } finally {
+            if ($isGzipped) {
+                gzclose($sourceHandle);
+            } else {
+                fclose($sourceHandle);
+            }
+            fclose($targetHandle);
+        }
+        
+        $this->logMessage("SQL adaptation completed: {$lineCount} lines processed, {$adaptedLines} lines adapted");
+        
+        return $adaptedFile;
+    }
+    
+    /**
+     * Actualiza el archivo parameters.php con la nueva configuración de DB
+     */
+    private function updateParametersFile($dbConfig)
+    {
+        $this->logMessage("Updating parameters.php file");
+        
+        $parametersFile = dirname(__FILE__) . '/app/config/parameters.php';
+        if (!file_exists($parametersFile)) {
+            $this->logMessage("parameters.php not found, skipping update");
+            return true;
+        }
+        
+        try {
+            $content = file_get_contents($parametersFile);
+            if ($content === false) {
+                throw new Exception("Failed to read parameters.php file");
+            }
+            
+            // Patrones para reemplazar las credenciales de la base de datos
+            $patterns = [
+                "/'database_host'\s*=>\s*'[^']*'/" => "'database_host' => '" . $dbConfig['host'] . "'",
+                "/'database_user'\s*=>\s*'[^']*'/" => "'database_user' => '" . $dbConfig['user'] . "'",
+                "/'database_password'\s*=>\s*'[^']*'/" => "'database_password' => '" . $dbConfig['password'] . "'",
+                "/'database_name'\s*=>\s*'[^']*'/" => "'database_name' => '" . $dbConfig['name'] . "'",
+                "/'database_prefix'\s*=>\s*'[^']*'/" => "'database_prefix' => '" . $dbConfig['prefix'] . "'",
+            ];
+            
+            foreach ($patterns as $pattern => $replacement) {
+                $newContent = preg_replace($pattern, $replacement, $content);
+                if ($newContent !== null) {
+                    $content = $newContent;
+                } else {
+                    $this->logMessage("Failed to replace pattern: " . $pattern);
+                }
+            }
+            
+            // Escribir el contenido actualizado
+            if (file_put_contents($parametersFile, $content) === false) {
+                throw new Exception("Failed to write updated parameters.php file");
+            }
+            
+            $this->logMessage("parameters.php updated successfully");
+            return true;
+            
+        } catch (Exception $e) {
+            $this->logMessage("Error updating parameters.php: " . $e->getMessage());
+            return false;
+        }
     }
     
     private function restoreDatabase($sqlFile, $dbConfig)
